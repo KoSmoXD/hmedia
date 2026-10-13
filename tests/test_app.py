@@ -82,3 +82,71 @@ def test_full_flow():
     assert alice.post('/api/login',json={'username':'alice_new','password':'alice-secret-42'}).status_code==401
     assert alice.post('/api/login',json={'username':'alice_new','password':'more-secure-44'}).status_code==200
     assert alice.get('/health').json()['ok'] is True
+
+
+def test_posts_files_channels_and_moderation():
+    """Owner permissions, uploaded files, private-file boundaries, ban revocation and post deletes."""
+    owner = TestClient(app)
+    alice = TestClient(app)
+    bob = TestClient(app)
+    third = TestClient(app)
+    assert owner.post('/api/login',json={'username':'Mr_H','password':'a-strong-owner-secret'}).status_code==200
+    assert alice.post('/api/signup',json={'username':'alice_extra','password':'my-test-pass-123'}).status_code==201
+    assert bob.post('/api/signup',json={'username':'bob_extra','password':'my-test-pass-123'}).status_code==201
+    assert third.post('/api/signup',json={'username':'third_extra','password':'my-test-pass-123'}).status_code==201
+    alice_id=alice.get('/api/me').json()['id']
+    bob_id=bob.get('/api/me').json()['id']
+    assert alice.get('/api/admin/users').status_code==403
+    assert alice.post(f'/api/admin/users/{bob_id}/ban',json={'reason':'test'}).status_code==403
+    assert bob.delete('/api/channels/general').status_code==403
+    assert owner.delete('/api/channels/general').status_code==403
+    assert owner.post('/api/channels',json={'name':'media-files','topic':'files and discussion'}).status_code==201
+
+    channel_file=alice.post('/api/channels/media-files/attachments', data={'body':'A PDF file'},files={'file':('test.pdf',b'%PDF-1.4\nhello','application/pdf')})
+    assert channel_file.status_code==201,channel_file.text
+    message=channel_file.json()
+    assert message['body']=='A PDF file'
+    assert message['attachment']['name']=='test.pdf'
+    assert message['attachment']['mime']=='application/octet-stream'
+    attachment=message['attachment']['url']
+    assert bob.get(attachment).content.startswith(b'%PDF')
+    assert third.get(attachment).status_code==200
+    assert TestClient(app).get(attachment).status_code==401
+    assert alice.post('/api/channels/media-files/attachments',files={'file':('big.zip',b'x'*(8*1024*1024+1))}).status_code==413
+    assert alice.post('/api/channels/media-files/attachments',files={'file':('script.html',b'<script>alert(1)</script>')}).status_code==400
+    assert alice.post('/api/channels/media-files/attachments',files={'file':('spoof.png',b'not an image')}).status_code==400
+    assert alice.get('/api/channels/media-files/messages').json()[-1]['attachment']['id']==message['attachment']['id']
+
+    private=alice.post(f'/api/dms/{bob_id}/attachments',files={'file':('test.txt',b'PRIVATE FILE','text/plain')})
+    assert private.status_code==201,private.text
+    private_link=private.json()['attachment']['url']
+    assert alice.get(private_link).status_code==200
+    assert bob.get(private_link).status_code==200
+    assert third.get(private_link).status_code==403
+    assert private.json()['attachment']['name']=='test.txt'
+
+    public_post=alice.post('/api/posts',json={'title':'My first post','body':'Hello everyone'})
+    assert public_post.status_code==201,public_post.text
+    post_id=public_post.json()['id']
+    assert any(p['id']==post_id for p in bob.get('/api/posts').json())
+    assert bob.delete(f'/api/posts/{post_id}').status_code==403
+    assert alice.delete(f'/api/posts/{post_id}').status_code==200
+    file_post=alice.post('/api/posts/with-file',data={'title':'Attached','body':'new attachment'}, files={'file':('notes.txt',b'hello posts')})
+    assert file_post.status_code==201,file_post.text
+    post_file_link=file_post.json()['attachment']['url']
+    assert bob.get(post_file_link).status_code==200
+    assert owner.delete('/api/posts/'+str(file_post.json()['id'])).status_code==200
+    assert bob.get(post_file_link).status_code==404
+
+    assert owner.post(f'/api/admin/users/{owner.get("/api/me").json()["id"]}/ban',json={'reason':'oops'}).status_code==403
+    assert owner.post(f'/api/admin/users/{alice_id}/ban',json={'reason':'spam'}).status_code==200
+    assert alice.get('/api/me').status_code==401
+    assert alice.get('/api/posts').status_code==401
+    assert alice.get(private_link).status_code==401
+    assert alice.post('/api/login',json={'username':'alice_extra','password':'my-test-pass-123'}).status_code==403
+    assert any(u['username']=='alice_extra' and u['banned'] for u in owner.get('/api/admin/users').json())
+    assert owner.post(f'/api/admin/users/{alice_id}/unban').status_code==200
+    assert alice.post('/api/login',json={'username':'alice_extra','password':'my-test-pass-123'}).status_code==200
+    assert owner.delete('/api/channels/media-files').status_code==200
+    assert bob.get('/api/channels/media-files/messages').status_code==404
+    assert bob.get(attachment).status_code==404

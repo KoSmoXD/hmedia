@@ -3,7 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const icon = (name) => `<svg aria-hidden="true"><use href="#i-${name}"></use></svg>`;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (x) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
-const state = {me:null,channels:[],members:[],dms:[],online:new Set(),mode:'channel',room:'general',peer:null,ws:null,msgIds:new Set(),earliest:null,hasOlder:false,loading:false,lastTyping:0,typingTimeout:null,toastTimer:null,sidebarOpen:innerWidth>630,showMembers:false,unreadDms:new Set(),authMode:'login',settingsTab:'account'};
+const state = {me:null,channels:[],members:[],dms:[],online:new Set(),mode:'channel',room:'general',peer:null,ws:null,msgIds:new Set(),earliest:null,hasOlder:false,loading:false,lastTyping:0,typingTimeout:null,toastTimer:null,sidebarOpen:innerWidth>630,showMembers:false,unreadDms:new Set(),upload:null,authMode:'login',settingsTab:'account'};
 const palette = ['#7967e7','#408fad','#c77e9e','#b48b55','#54a18a','#a37bcc','#a47b64'];
 const colorFor = (value) => {let h=0;for(const c of String(value))h=((h<<5)-h+c.charCodeAt(0))|0;return palette[Math.abs(h)%palette.length]};
 function avatar(user,cls=''){if(!user)return `<div class="avatar ${cls}">?</div>`;
@@ -38,14 +38,14 @@ async function enterApp(){
   try{
     const [channels,members,dms]=await Promise.all([api('/api/channels'),api('/api/members'),api('/api/dms')]);
     state.channels=channels;state.members=members;state.dms=dms;
-    $('new-channel').hidden=state.me.role!=='owner';updateDock();renderChannels();renderDms();renderMembers();
+    $('new-channel').hidden=state.me.role!=='owner';$('owner-moderation').hidden=state.me.role!=='owner';updateDock();renderChannels();renderDms();renderMembers();
     await openChannel('general');
     if(innerWidth<=630)toggleSidebar(false);
   }catch(e){showToast(e.message)}
 }
 function updateDock(){if(!state.me)return;$('dock-avatar').innerHTML=avatar(state.me,'dock-avatar-img');$('dock-name').textContent=state.me.display_name;$('dock-handle').textContent='@'+state.me.username}
 function renderChannels(){
-  $('channel-list').innerHTML=state.channels.map(c=>`<button class="channel-item ${state.mode==='channel'&&state.room===c.slug?'active':''}" data-channel="${escapeHtml(c.slug)}">${icon('hash')}<span>${escapeHtml(c.name)}</span></button>`).join('');
+  $('channel-list').innerHTML=state.channels.map(c=>`<div class="channel-line"><button class="channel-item ${state.mode==='channel'&&state.room===c.slug?'active':''}" data-channel="${escapeHtml(c.slug)}">${icon('hash')}<span>${escapeHtml(c.name)}</span></button>${state.me?.role==='owner'&&c.slug!=='general'?`<button type="button" class="delete-channel" data-del-channel="${escapeHtml(c.slug)}" title="Delete channel">×</button>`:''}</div>`).join('');
 }
 function renderDms(){
   $('dm-list').innerHTML=state.dms.length?state.dms.map(u=>`<button class="channel-item ${state.mode==='dm'&&state.peer===u.id?'active':''}" data-dm="${u.id}">${avatar(u,'dm-channel-avatar')}<span>${escapeHtml(u.display_name)}</span>${state.unreadDms.has(u.id)?'<span class="unread-dot"></span>':''}</button>`).join(''):'<div class="dm-empty">no conversations yet</div>';
@@ -60,11 +60,11 @@ function renderMembers(){
 function channelBySlug(slug){return state.channels.find(c=>c.slug===slug)}
 function peerById(id){return state.members.find(m=>m.id===id)||state.dms.find(m=>m.id===id)}
 async function openChannel(slug){const ch=channelBySlug(slug);if(!ch)return;
-  state.mode='channel';state.room=slug;state.peer=null;
+  state.mode='channel';state.room=slug;state.peer=null;$('composer-area').hidden=false;clearSelectedFile();
   $('header-symbol').innerHTML=icon('hash');$('room-name').textContent=ch.name;$('room-topic').textContent=ch.topic;$('message-input').placeholder='Message #'+ch.name;renderChannels();renderDms();await loadConversation();connectWs();toggleSidebar(false)
 }
 async function openDm(id){const peer=peerById(id);if(!peer)return;
-  state.mode='dm';state.peer=id;state.unreadDms.delete(id);if(!state.dms.some(u=>u.id===id))state.dms.unshift(peer);
+  state.mode='dm';state.peer=id;$('composer-area').hidden=false;clearSelectedFile();state.unreadDms.delete(id);if(!state.dms.some(u=>u.id===id))state.dms.unshift(peer);
   $('header-symbol').innerHTML=icon('message');$('room-name').textContent=peer.display_name;$('room-topic').textContent='Direct messages · @'+peer.username;$('message-input').placeholder='Message @'+peer.username;renderChannels();renderDms();await loadConversation();connectWs();toggleSidebar(false)
 }
 function urlForMessages(){return state.mode==='channel'?`/api/channels/${encodeURIComponent(state.room)}/messages`:`/api/dms/${state.peer}/messages`}
@@ -82,7 +82,7 @@ function welcomeMarkup(){const isChannel=state.mode==='channel';const n=isChanne
   return `<div class="chat-welcome"><div class="chat-welcome-icon">${icon(isChannel?'hash':'message')}</div><h2>${isChannel?'Welcome to '+escapeHtml(n)+'!':'Your conversation with '+escapeHtml(n)}</h2><p>${isChannel?'This is the beginning of the <strong>'+escapeHtml(n)+'</strong> channel. Pull up a chair and join the conversation.':'This is the start of your private conversation. Only you two can see these messages.'}</p><div class="welcome-line"><span>THE CONVERSATION STARTS HERE</span></div></div>`;
 }
 function formatTime(s){const t=new Date(s.endsWith('Z')||s.includes('+')?s:s.replace(' ','T')+'Z');return Number.isNaN(t.getTime())?'':t.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}
-function messageHtml(m){return `<article class="message" data-msg="${m.id}">${avatar(m.user,'message-avatar')}<div class="message-body"><div class="message-header"><button class="message-name" data-user="${m.user.id}">${escapeHtml(m.user.display_name)}</button>${roleBadge(m.user)}<span class="message-time">${formatTime(m.created_at)}</span></div><div class="message-text">${escapeHtml(m.body)}</div></div></article>`}
+function messageHtml(m){return `<article class="message" data-msg="${m.id}">${avatar(m.user,'message-avatar')}<div class="message-body"><div class="message-header"><button class="message-name" data-user="${m.user.id}">${escapeHtml(m.user.display_name)}</button>${roleBadge(m.user)}<span class="message-time">${formatTime(m.created_at)}</span></div><div class="message-text">${escapeHtml(m.body)}</div>${attachmentMarkup(m.attachment)}</div></article>`}
 function appendMessages(list,initial=false){const root=$('messages');
   for(const msg of list){if(state.msgIds.has(msg.id))continue;state.msgIds.add(msg.id);root.insertAdjacentHTML('beforeend',messageHtml(msg))}
   if(!initial){const scroll=$('chat-scroller');const nearBottom=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<165;if(nearBottom||list.some(m=>m.user.id===state.me.id))scrollBottom()}
@@ -110,16 +110,16 @@ function connectWs(){if(state.ws){state.ws.onclose=null;state.ws.close();state.w
       const scroll=$('chat-scroller');const near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<175;
       appendMessages([packet.message]);if(near||packet.message.user.id===state.me.id)scrollBottom();
       if(state.mode==='dm'&&packet.message.user.id!==state.me.id)refreshDms();
-    }else if(packet.type==='presence'){state.online=new Set(packet.online);renderMembers();if(packet.online.some(id=>id!==state.me.id&&!state.members.some(u=>u.id===id)))refreshMembers()}
+    }else if(packet.type==='channel-deleted'){showToast('Channel was deleted.');state.channels=state.channels.filter(c=>c.slug!==packet.slug);openChannel('general')}else if(packet.type==='presence'){state.online=new Set(packet.online);renderMembers();if(packet.online.some(id=>id!==state.me.id&&!state.members.some(u=>u.id===id)))refreshMembers()}
     else if(packet.type==='dm-alert'){state.unreadDms.add(packet.from_user_id);refreshDms();showToast('New private message.')}
     else if(packet.type==='typing'&&packet.user_id!==state.me.id){$('typing-indicator').textContent=packet.name+' is typing…';clearTimeout(state.typingTimeout);state.typingTimeout=setTimeout(()=>$('typing-indicator').textContent='',1500)}
   };
-  ws.onclose=()=>{if(state.ws===ws){state.ws=null;setTimeout(()=>{if(state.me&&!state.ws)connectWs()},2800)}};
+  ws.onclose=(event)=>{if(state.ws!==ws)return;state.ws=null;if(event.code===1008){logoutLocal();showToast('Session ended or account banned.');return}setTimeout(()=>{if(state.me&&!state.ws)connectWs()},2800)};
 }
 async function refreshDms(){try{state.dms=await api('/api/dms');renderDms()}catch{}}
-$('message-form').addEventListener('submit',async(e)=>{e.preventDefault();const input=$('message-input'),body=input.value.trim();if(!body||!state.me)return;const button=$('send-button');button.disabled=true;
-  const destination=urlForMessages();input.value='';input.style.height='auto';
-  try{const msg=await api(destination,{method:'POST',body:JSON.stringify({body})});if(destination===urlForMessages()&&!state.msgIds.has(msg.id)){appendMessages([msg]);scrollBottom()}if(state.mode==='dm')refreshDms()}
+$('message-form').addEventListener('submit',async(e)=>{e.preventDefault();const input=$('message-input'),body=input.value.trim();if((!body&&!state.upload)||!state.me)return;const button=$('send-button');button.disabled=true;
+  const destination=urlForMessages();const attachment=state.upload;if(!body&&!attachment){button.disabled=false;return}input.value='';input.style.height='auto';
+  try{let msg;if(attachment){const form=new FormData();form.append('file',attachment);form.append('body',body);msg=await api(destination.replace(/\/messages$/, '/attachments'),{method:'POST',body:form});clearSelectedFile()}else{msg=await api(destination,{method:'POST',body:JSON.stringify({body})})}if(destination===urlForMessages()&&!state.msgIds.has(msg.id)){appendMessages([msg]);scrollBottom()}if(state.mode==='dm')refreshDms()}
   catch(err){input.value=body;showToast(err.message)}finally{button.disabled=false;input.focus()}
 });
 $('message-input').addEventListener('keydown',(e)=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('message-form').requestSubmit()}});
@@ -129,11 +129,13 @@ $('emoji-popover').innerHTML=emojis.map(e=>`<button type="button">${e}</button>`
 $('emoji-button').addEventListener('click',()=>{$('emoji-popover').hidden=!$('emoji-popover').hidden});
 $('emoji-popover').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const i=$('message-input');i.value+=b.textContent;i.focus();$('emoji-popover').hidden=true});
 document.addEventListener('click',e=>{if(!$('emoji-button').contains(e.target)&&!$('emoji-popover').contains(e.target))$('emoji-popover').hidden=true});
-$('channel-list').addEventListener('click',(e)=>{const btn=e.target.closest('[data-channel]');if(btn)openChannel(btn.dataset.channel)});
+$('channel-list').addEventListener('click',async(e)=>{const del=e.target.closest('[data-del-channel]');if(del){const slug=del.dataset.delChannel;if(confirm('Delete #'+slug+' and all its messages?')){try{await api('/api/channels/'+encodeURIComponent(slug),{method:'DELETE'});state.channels=state.channels.filter(c=>c.slug!==slug);if(state.room===slug)openChannel('general');else renderChannels();showToast('Channel deleted.')}catch(err){showToast(err.message)}}return}const btn=e.target.closest('[data-channel]');if(btn)openChannel(btn.dataset.channel)});
 $('dm-list').addEventListener('click',(e)=>{const btn=e.target.closest('[data-dm]');if(btn)openDm(Number(btn.dataset.dm))});
 function toggleSidebar(open){state.sidebarOpen=open;$('app-screen').classList.toggle('sidebar-open',open)}
 $('mobile-menu').addEventListener('click',()=>toggleSidebar(!state.sidebarOpen));
 $('rail-home').addEventListener('click',()=>{if(innerWidth<=630)toggleSidebar(true);else openChannel('general')});
+$('rail-posts').addEventListener('click',openPosts);$('sidebar-posts').addEventListener('click',openPosts);
+$('owner-moderation').addEventListener('click',openModeration);
 $('rail-dms').addEventListener('click',()=>{if(state.dms[0])openDm(state.dms[0].id);else openFinder()});
 $('header-members').addEventListener('click',()=>{
   if(innerWidth<=630){
@@ -157,6 +159,7 @@ document.addEventListener('keydown',(e)=>{if(e.key==='Escape'&&!$('modal-backdro
 const closeButton='<button class="modal-close" type="button" aria-label="Close dialog">'+icon('close')+'</button>';
 function showUserProfile(id){const u=peerById(id)|| (state.me?.id===id?state.me:null);if(!u)return;
   openModal(`<div class="compact-modal" style="padding:0;max-width:440px">${closeButton}<div class="profile-banner"></div>${avatar(u,'user-modal-avatar')}<div class="public-profile-body"><h2>${escapeHtml(u.display_name)} ${roleBadge(u)}</h2><div class="handle">@${escapeHtml(u.username)}</div><div class="settings-label" style="padding:0">ABOUT ME</div><p class="about">${escapeHtml(u.bio||'Just hanging out on Mr H Media.')}</p>${u.id!==state.me.id?'<button class="save-btn" id="profile-message">'+icon('message')+' &nbsp; Send message</button>':'<button class="save-btn" id="profile-edit">Edit my profile</button>'}</div></div>`);
+  if(state.me.role==='owner'&&u.role!=='owner'){$('modal-content').querySelector('.public-profile-body').insertAdjacentHTML('beforeend',`<button class="ban-profile-btn" id="ban-profile">Ban @${escapeHtml(u.username)}</button>`);$('ban-profile').addEventListener('click',()=>banFromProfile(u))}
   $('profile-message')?.addEventListener('click',()=>{closeModal();openDm(u.id)});$('profile-edit')?.addEventListener('click',()=>openSettings('profile'));
 }
 async function openFinder(){openModal(`<div class="compact-modal">${closeButton}<h2>Find your people.</h2><p class="muted-p">Search the community and start a private conversation.</p><input class="finder-input" id="finder-search" type="search" placeholder="Search username or display name…" autocomplete="off"><div class="finder-results" id="finder-results"></div></div>`);
@@ -205,5 +208,20 @@ $('new-channel').addEventListener('click',()=>{
   openModal(`<div class="compact-modal">${closeButton}<h2>Create a channel</h2><p class="muted-p">Give your community a new place to talk.</p><form id="channel-create-form" class="modal-form"><label>CHANNEL NAME</label><input name="name" required maxlength="28" placeholder="music-chat"><label>TOPIC (OPTIONAL)</label><input name="topic" maxlength="120" placeholder="talk about everything music"><span class="settings-message error" id="create-error"></span><button type="submit" class="save-btn">Create channel</button></form></div>`);
   $('channel-create-form').addEventListener('submit',async(e)=>{e.preventDefault();const form=e.target;const data=Object.fromEntries(new FormData(form).entries());try{const channel=await api('/api/channels',{method:'POST',body:JSON.stringify(data)});state.channels.push(channel);closeModal();openChannel(channel.slug);showToast('Channel created.')}catch(err){$('create-error').textContent=err.message}})
 });
+
+function attachmentMarkup(a){if(!a)return '';const url='/api/attachments/'+encodeURIComponent(a.id);const name=escapeHtml(a.name);const size=(a.size/1024).toFixed(1)+' KB';const image=a.mime==='image/png';return `<div class="attachment-card">${image?`<a href="${url}" target="_blank" rel="noopener"><img class="attachment-image" src="${url}" loading="lazy" alt="${name}"></a>`:''}<a class="attachment-link" href="${url}" ${image?'':'download'}>${icon('paperclip')}<span>${name}</span><small>${size}</small></a></div>`}
+function clearSelectedFile(){state.upload=null;$('chat-file').value='';$('selected-file').hidden=true;$('selected-file').textContent=''}
+$('add-attachment').addEventListener('click',()=>$('chat-file').click());
+$('chat-file').addEventListener('change',e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>8*1024*1024){showToast('Maximum file size is 8 MB.');clearSelectedFile();return}state.upload=file;$('selected-file').hidden=false;$('selected-file').innerHTML='Attached: <strong>'+escapeHtml(file.name)+'</strong> <button type="button" id="clear-chat-file" aria-label="Remove attachment">×</button>';$('clear-chat-file').addEventListener('click',clearSelectedFile);});
+
+function postMarkup(p){return `<article class="post-card" data-post="${p.id}"><div class="post-author">${avatar(p.user)}<div><strong>${escapeHtml(p.user.display_name)} ${roleBadge(p.user)}</strong><small>@${escapeHtml(p.user.username)} · ${formatTime(p.created_at)}</small></div>${p.user.id===state.me.id||state.me.role==='owner'?`<button type="button" class="post-delete" data-delete-post="${p.id}" title="Delete post">Delete</button>`:''}</div><h3>${escapeHtml(p.title)}</h3><p>${escapeHtml(p.body)}</p>${attachmentMarkup(p.attachment)}</article>`}
+async function openPosts(){state.mode='posts';state.peer=null;$('composer-area').hidden=true;clearSelectedFile();if(state.ws){state.ws.onclose=null;state.ws.close();state.ws=null}renderChannels();renderDms();$('header-symbol').innerHTML=icon('image');$('room-name').textContent='Community posts';$('room-topic').textContent='Updates, creations and announcements';$('typing-indicator').textContent='';$('older-holder').replaceChildren();$('messages').innerHTML='<p class="posts-loading">Loading posts…</p>';toggleSidebar(false);await refreshPosts()}
+async function refreshPosts(){if(state.mode!=='posts')return;try{const posts=await api('/api/posts');if(state.mode!=='posts')return;$('messages').innerHTML=`<section class="posts-feed"><div class="posts-head"><div><span class="feed-kicker">MR H MEDIA</span><h2>Community feed<span>.</span></h2><p>Share news, screenshots, work and files with everyone.</p></div><button type="button" class="save-btn" id="new-post">+ New post</button></div><div id="posts-list">${posts.length?posts.map(postMarkup).join(''):'<div class="posts-empty">No posts yet. Publish the first one.</div>'}</div></section>`;$('new-post').addEventListener('click',openPostEditor)}catch(e){showToast(e.message)}}
+$('messages').addEventListener('click',async(e)=>{const b=e.target.closest('[data-delete-post]');if(!b)return;if(!confirm('Delete this post?'))return;try{await api('/api/posts/'+b.dataset.deletePost,{method:'DELETE'});await refreshPosts();showToast('Post deleted.')}catch(err){showToast(err.message)}});
+function openPostEditor(){openModal(`<div class="compact-modal">${closeButton}<h2>New post</h2><p class="muted-p">Publish to your community. You can include one file (up to 8 MB).</p><form class="modal-form" id="post-form"><label>TITLE</label><input name="title" maxlength="120" required placeholder="What are you sharing?"><label>POST</label><textarea name="body" maxlength="5000" rows="5" placeholder="Write something…"></textarea><label>ATTACHMENT (OPTIONAL)</label><input type="file" name="file" id="post-file"><span id="post-status" class="settings-message"></span><button type="submit" class="save-btn">Publish post</button></form></div>`);$('post-form').addEventListener('submit',async(e)=>{e.preventDefault();const form=e.currentTarget,btn=form.querySelector('button[type=submit]'),data=new FormData(form),file=$('post-file').files?.[0];btn.disabled=true;$('post-status').textContent='Publishing…';try{if(file){if(file.size>8*1024*1024)throw new Error('Max file size: 8 MB.');await api('/api/posts/with-file',{method:'POST',body:data})}else{await api('/api/posts',{method:'POST',body:JSON.stringify({title:data.get('title'),body:data.get('body')})})}closeModal();await openPosts();showToast('Post published.')}catch(err){$('post-status').textContent=err.message;btn.disabled=false}})}
+
+async function banFromProfile(u){if(!confirm('Ban @'+u.username+' from Mr H Media? They will be logged out immediately.'))return;const reason=prompt('Reason for ban (optional):')||'';try{await api('/api/admin/users/'+u.id+'/ban',{method:'POST',body:JSON.stringify({reason})});closeModal();await refreshMembers();showToast('User banned.')}catch(err){showToast(err.message)}}
+async function openModeration(){if(state.me?.role!=='owner')return;openModal(`<div class="compact-modal moderation-panel">${closeButton}<h2>Moderation</h2><p class="muted-p">Ban users, or restore previously banned accounts.</p><input id="admin-search" class="finder-input" placeholder="Filter users…"><div id="moderation-list" class="finder-results"></div></div>`);let list=[];const render=()=>{$('moderation-list').innerHTML=list.filter(u=>(u.username+' '+u.display_name).toLowerCase().includes($('admin-search').value.toLowerCase())).map(u=>`<div class="moderation-row">${avatar(u)}<div><strong>${escapeHtml(u.username)}</strong><small>${u.role==='owner'?'owner':u.banned?'BANNED · '+escapeHtml(u.ban_reason||'no reason'):'member'}</small></div>${u.role==='owner'?'':`<button data-admin-id="${u.id}" data-admin-action="${u.banned?'unban':'ban'}">${u.banned?'Unban':'Ban'}</button>`}</div>`).join('')};try{list=await api('/api/admin/users');render()}catch(e){showToast(e.message)}$('admin-search').addEventListener('input',render);$('moderation-list').addEventListener('click',async(e)=>{const b=e.target.closest('[data-admin-action]');if(!b)return;const u=list.find(x=>x.id===Number(b.dataset.adminId));if(!u)return;const action=b.dataset.adminAction;if(!confirm((action==='ban'?'Ban ':'Unban ')+u.username+'?'))return;const reason=action==='ban'?(prompt('Reason for ban (optional):')||''):'';try{await api('/api/admin/users/'+u.id+'/'+action,{method:'POST',...(action==='ban'?{body:JSON.stringify({reason})}:{})});list=await api('/api/admin/users');render();await refreshMembers();showToast('User '+(action==='ban'?'banned.':'unbanned.'))}catch(err){showToast(err.message)}})}
+
 async function boot(){try{state.me=await api('/api/me');await enterApp()}catch(e){state.me=null;$('auth-screen').hidden=false;$('app-screen').hidden=true}}
 boot();

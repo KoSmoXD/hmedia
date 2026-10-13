@@ -12,7 +12,10 @@ Dark, Discord-inspired community chat site. **Real accounts, permanent message h
 - User search, public profiles, editable display name, username and bio
 - Custom profile images (PNG/JPG/WEBP/GIF; auto-optimized to square-friendly 256px PNG)
 - Responsive dark theme for desktop and mobile
-- Verified **OWNER** role for the provisioned `Mr_H` account; only the owner can add channels
+- Verified **OWNER** role for the provisioned `Mr_H` account; only the owner can create or remove channels (except `#general`)
+- **Attachments:** upload/download files (up to 8 MB) in channels, DMs, and posts; images preview inline. Private DM downloads are restricted to DM participants. Unsafe content types download as attachments instead of running in the browser.
+- **Community posts:** members can publish posts with optional file uploads; authors can delete their posts, and the owner can moderate any post.
+- **Moderation:** owner-only user list, ban and unban with optional reason; banning revokes the user's sessions and closes their active WebSocket connections.
 - SQLite persistence: survives restarts when the data directory is persisted
 
 ## Local setup
@@ -71,7 +74,8 @@ For Railway, deploy this repository with its Dockerfile, set `OWNER_USERNAME`, `
 - The site is not using any third-party auth provider. Passwords are not stored in plaintext.
 - To back up your deployment, back up the mounted data volume (including SQLite WAL/shm files or use SQLite's online backup API).
 - Requires sticky single-process WebSocket messaging; for multi-replica scale, use a message broker such as Redis and move persistent data to PostgreSQL.
-- No email or password-reset-by-email feature: forgotten passwords currently require an administrator recovery workflow. No moderation interface, voice calls, or notifications are included.
+- No email or password-reset-by-email feature: forgotten passwords currently require an administrator recovery workflow. Voice calls and push notifications are not included.
+- The 500 MB Railway volume also holds files, so file storage is limited; back up the volume regularly. Uploaded files are not virus-scanned, so users should only download files they trust. For a large public community, add malware scanning, user quotas, and S3 object storage.
 - Restrict deployment and protect TLS certificates; see `COOKIE_SECURE` above. Add production observability, abuse controls, and backups before operating a large public community.
 
 ## Automated verification
@@ -81,4 +85,4 @@ pip install pytest httpx
 pytest -q
 ```
 
-Tests cover signup, owner role, login, failed logins, channels, WebSocket message delivery and typing events, DMs, profile updates, avatar validation, password changes, and logout.
+Tests cover signup, owner role, login, failed logins, channels, WebSocket message delivery and typing events, DMs, profile updates, avatar validation, password changes, logout, post publication/deletion, message/post attachments, private-file access rules, file-type/size limits, and owner moderation (ban/unban).
