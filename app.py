@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import hmac
 import io
+import json
 import os
 import re
 import secrets
@@ -79,6 +80,7 @@ def init_db():
           channel_slug TEXT REFERENCES channels(slug) ON DELETE CASCADE,
           recipient_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
           body TEXT NOT NULL,
+          reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
           created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
           CHECK ((channel_slug IS NOT NULL AND recipient_id IS NULL) OR (channel_slug IS NULL AND recipient_id IS NOT NULL))
         );
@@ -86,12 +88,44 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_messages_dm ON messages(sender_id,recipient_id,id);
         ''')
         # Additive schema migrations preserve accounts, channels, and message history.
+        if 'reply_to_id' not in {r['name'] for r in c.execute('PRAGMA table_info(messages)')}:
+            c.execute('ALTER TABLE messages ADD COLUMN reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_message_replies ON messages(reply_to_id)')
         columns = {r['name'] for r in c.execute('PRAGMA table_info(users)')}
         if 'banned_at' not in columns:
             c.execute('ALTER TABLE users ADD COLUMN banned_at TEXT')
         if 'ban_reason' not in columns:
             c.execute("ALTER TABLE users ADD COLUMN ban_reason TEXT NOT NULL DEFAULT ''")
+        if 'theme' not in columns:
+            c.execute("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT '{}' ")
+        if 'spam_timeout_until' not in columns:
+            c.execute('ALTER TABLE users ADD COLUMN spam_timeout_until REAL NOT NULL DEFAULT 0')
+        if 'spam_strikes' not in columns:
+            c.execute('ALTER TABLE users ADD COLUMN spam_strikes INTEGER NOT NULL DEFAULT 0')
         c.executescript('''
+        CREATE TABLE IF NOT EXISTS comments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+          author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          body TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id,id);
+        CREATE TABLE IF NOT EXISTS spam_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          category TEXT NOT NULL, content_hash TEXT NOT NULL, at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_spam_window ON spam_events(user_id,category,at);
+        CREATE TABLE IF NOT EXISTS pings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          recipient_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL, target_id INTEGER NOT NULL, context TEXT NOT NULL,
+          preview TEXT NOT NULL, read_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pings_recipient ON pings(recipient_id,id DESC);
         CREATE TABLE IF NOT EXISTS posts (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -142,7 +176,8 @@ def check_password(password: str, stored: str) -> bool:
 
 def user_dict(r):
     return {'id': r['id'], 'username': r['username'], 'display_name': r['display_name'],
-            'bio': r['bio'], 'avatar': r['avatar'], 'role': r['role']}
+            'bio': r['bio'], 'avatar': r['avatar'], 'role': r['role'],
+            'theme': json.loads(r['theme'] or '{}')}
 
 def auth_user(token: str | None):
     if not token:
@@ -179,6 +214,69 @@ def throttle(request: Request, category: str, max_attempts: int, period: int):
         raise HTTPException(429, 'Too many attempts. Try again later.')
     events.append(now)
 
+# Persistent, user-scoped spam controls (multiple browser sessions cannot bypass them).
+SPAM_LIMITS = {'message': (6, 10, 35, 60), 'upload': (3, 60, 8, 3600),
+               'post': (3, 60, 9, 3600), 'comment': (8, 30, 35, 3600),
+               'avatar': (5, 3600, 5, 3600)}
+
+def check_spam(user, category: str, text: str):
+    if user['role'] == 'owner':
+        return
+    limit, window, long_limit, long_window = SPAM_LIMITS[category]
+    now = time.time()
+    fingerprint = hashlib.sha256(' '.join(text.casefold().split()).encode()).hexdigest() if text.strip() else ''
+    with db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        u = c.execute('SELECT spam_timeout_until,spam_strikes FROM users WHERE id=?', (user['id'],)).fetchone()
+        if u['spam_timeout_until'] > now:
+            seconds = max(1, int(u['spam_timeout_until'] - now) + 1)
+            raise HTTPException(429, f'Slow down. Try again in {seconds} seconds.', headers={'Retry-After':str(seconds)})
+        recent = c.execute('SELECT at,content_hash FROM spam_events WHERE user_id=? AND category=? AND at>? ORDER BY at DESC',
+                           (user['id'],category,now-long_window)).fetchall()
+        too_fast = sum(r['at'] > now-window for r in recent) >= limit or len(recent)>=long_limit
+        duplicate = bool(fingerprint and any(r['content_hash']==fingerprint and r['at']>now-45 for r in recent))
+        if too_fast or duplicate:
+            strikes = min(int(u['spam_strikes']) + 1, 8)
+            seconds = min(300, 10 * (2 ** (strikes-1)))
+            c.execute('UPDATE users SET spam_timeout_until=?,spam_strikes=? WHERE id=?', (now+seconds,strikes,user['id']))
+            raise_after_commit = (seconds, duplicate)
+        else:
+            raise_after_commit = None
+            c.execute('INSERT INTO spam_events(user_id,category,content_hash,at) VALUES (?,?,?,?)', (user['id'],category,fingerprint,now))
+            c.execute('DELETE FROM spam_events WHERE user_id=? AND at<?', (user['id'],now-3600))
+    if raise_after_commit:
+        seconds, duplicate = raise_after_commit
+        raise HTTPException(429, ('Duplicate content. ' if duplicate else 'Too many actions. ') + f'Try again in {seconds} seconds.', headers={'Retry-After':str(seconds)})
+
+MENTION_PATTERN = re.compile(r'(?<![\w@])@([A-Za-z0-9_]{3,24})\b')
+def record_pings(c, actor_id: int, body: str, kind: str, target_id: int, context: str):
+    names = list(dict.fromkeys(n.casefold() for n in MENTION_PATTERN.findall(body)))[:5]
+    notified = []
+    for username in names:
+        user = c.execute('SELECT id FROM users WHERE username=? COLLATE NOCASE AND banned_at IS NULL',(username,)).fetchone()
+        if user and user['id'] != actor_id:
+            c.execute('INSERT INTO pings(recipient_id,sender_id,kind,target_id,context,preview) VALUES (?,?,?,?,?,?)',
+                      (user['id'],actor_id,kind,target_id,context,body[:180]))
+            notified.append(user['id'])
+    return notified
+
+async def notify_pings(ids):
+    for ws, (_, uid) in list(connections.items()):
+        if uid in ids:
+            try:
+                await ws.send_json({'type':'ping-alert'})
+            except Exception:
+                connections.pop(ws,None)
+
+class ThemePrefs(BaseModel):
+    accent: str = '#8a7eff'
+    sidebar: str = '#151620'
+    chat: str = '#1a1b26'
+    text: str = '#e8e9f2'
+
+class NewComment(BaseModel):
+    body: str = Field(min_length=1, max_length=1500)
+
 class Credentials(BaseModel):
     username: str
     password: str
@@ -194,6 +292,7 @@ class ChangePassword(BaseModel):
 
 class NewMessage(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
+    reply_to_id: int | None = Field(default=None, gt=0)
 
 class NewChannel(BaseModel):
     name: str
@@ -312,9 +411,20 @@ def update_password(data: ChangePassword, request: Request):
                   (u['id'], hashlib.sha256(token.encode()).hexdigest()))
     return {'ok': True}
 
+@app.patch('/api/me/theme')
+def update_theme(data: ThemePrefs, request: Request):
+    user = require_user(request)
+    colors = data.model_dump()
+    if any(not re.fullmatch(r'#[a-fA-F0-9]{6}',value) for value in colors.values()):
+        raise HTTPException(400,'Colors must use six-digit hexadecimal format.')
+    with db() as c:
+        c.execute('UPDATE users SET theme=? WHERE id=?', (json.dumps(colors),user['id']))
+        return user_dict(c.execute('SELECT * FROM users WHERE id=?',(user['id'],)).fetchone())
+
 @app.post('/api/me/avatar')
 async def upload_avatar(request: Request, file: UploadFile = File(...)):
     u = require_user(request)
+    check_spam(u,'avatar','avatar:'+str(time.time()))
     if file.content_type not in ('image/png', 'image/jpeg', 'image/webp', 'image/gif'):
         raise HTTPException(400, 'Upload a PNG, JPEG, WEBP, or GIF image.')
     raw = await file.read(4 * 1024 * 1024 + 1)
@@ -379,7 +489,11 @@ def members(request: Request, q: str = ''):
             return [user_dict(r) for r in c.execute('SELECT * FROM users WHERE banned_at IS NULL AND (username LIKE ? OR display_name LIKE ?) ORDER BY CASE role WHEN "owner" THEN 0 ELSE 1 END, display_name LIMIT 70', ('%' + q[:40] + '%', '%' + q[:40] + '%'))]
         return [user_dict(r) for r in c.execute('SELECT * FROM users WHERE banned_at IS NULL ORDER BY CASE role WHEN "owner" THEN 0 ELSE 1 END, display_name LIMIT 200')]
 
-MESSAGE_COLS = '''m.id, m.body, m.created_at, m.channel_slug, m.recipient_id,
+MESSAGE_COLS = '''m.id, m.body, m.created_at, m.channel_slug, m.recipient_id, m.reply_to_id,
+       (SELECT substr(q.body,1,180) FROM messages q WHERE q.id=m.reply_to_id) AS reply_preview,
+       (SELECT ru.username FROM messages q JOIN users ru ON ru.id=q.sender_id WHERE q.id=m.reply_to_id) AS reply_username,
+       (SELECT ru.display_name FROM messages q JOIN users ru ON ru.id=q.sender_id WHERE q.id=m.reply_to_id) AS reply_display_name,
+       (SELECT a2.filename FROM attachments a2 WHERE a2.message_id=m.reply_to_id) AS reply_file,
        u.id as user_id, u.username, u.display_name, u.avatar, u.role,
        a.id AS attachment_id, a.filename AS attachment_filename,
        a.media_type AS attachment_mime, a.size AS attachment_size'''
@@ -393,7 +507,10 @@ def message_dict(r):
             'channel_slug': r['channel_slug'], 'recipient_id': r['recipient_id'],
             'user': {'id': r['user_id'], 'username': r['username'], 'display_name': r['display_name'],
                      'avatar': r['avatar'], 'role': r['role']},
-            'attachment': attachment_dict(r) if r['attachment_id'] is not None else None}
+            'attachment': attachment_dict(r) if r['attachment_id'] is not None else None,
+            'reply': {'id': r['reply_to_id'], 'username': r['reply_username'],
+                      'display_name': r['reply_display_name'], 'preview': r['reply_preview'],
+                      'file': r['reply_file']} if r['reply_to_id'] else None}
 
 def get_messages(where: str, params: tuple, before: int | None):
     if before is not None:
@@ -410,6 +527,21 @@ def valid_channel(slug: str):
     if not room:
         raise HTTPException(404, 'Channel not found.')
     return room
+
+def validate_reply(c, reply_id: int | None, sender_id: int, slug: str | None, other_id: int | None):
+    if reply_id is None:
+        return
+    reply = c.execute('SELECT sender_id, recipient_id, channel_slug FROM messages WHERE id=?', (reply_id,)).fetchone()
+    if not reply:
+        raise HTTPException(404, 'Message to reply to was not found.')
+    if slug is not None:
+        allowed = reply['channel_slug'] == slug
+    else:
+        allowed = (reply['channel_slug'] is None and
+                   ((reply['sender_id'] == sender_id and reply['recipient_id'] == other_id) or
+                    (reply['sender_id'] == other_id and reply['recipient_id'] == sender_id)))
+    if not allowed:
+        raise HTTPException(403, 'Cannot reply to a message outside this conversation.')
 
 def valid_recipient(current_id, other_id):
     if current_id == other_id:
@@ -550,7 +682,7 @@ def download_attachment(attachment_id: int, request: Request):
                         filename=attachment['filename'], content_disposition_type='inline' if is_image else 'attachment',
                         headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'})
 
-async def send_file_message(file: UploadFile, request: Request, body: str, slug: str | None, recipient_id: int | None):
+async def send_file_message(file: UploadFile, request: Request, body: str, slug: str | None, recipient_id: int | None, reply_to_id: int | None = None):
     u = require_user(request)
     if len(body) > 2000:
         raise HTTPException(400, 'Message is too long.')
@@ -558,18 +690,28 @@ async def send_file_message(file: UploadFile, request: Request, body: str, slug:
         valid_channel(slug)
     else:
         valid_recipient(u['id'], recipient_id)
+    with db() as c:
+        validate_reply(c, reply_to_id, u['id'], slug, recipient_id)
     name, stored, mime, size = await store_attachment(file, request)
     try:
+        check_spam(u,'upload',body.strip() or 'file:'+str(time.time()))
+    except HTTPException:
+        (ATTACHMENTS_DIR / stored).unlink(missing_ok=True)
+        raise
+    try:
         with db() as c:
-            cur = c.execute('INSERT INTO messages(sender_id,channel_slug,recipient_id,body) VALUES (?,?,?,?)',
-                            (u['id'], slug, recipient_id, body.strip()))
+            validate_reply(c, reply_to_id, u['id'], slug, recipient_id)
+            cur = c.execute('INSERT INTO messages(sender_id,channel_slug,recipient_id,body,reply_to_id) VALUES (?,?,?,?,?)',
+                            (u['id'], slug, recipient_id, body.strip(), reply_to_id))
             c.execute('INSERT INTO attachments(sender_id,message_id,filename,stored_name,media_type,size) VALUES (?,?,?,?,?,?)',
                       (u['id'],cur.lastrowid,name,stored,mime,size))
             msg = message_dict(c.execute(f'''SELECT {MESSAGE_COLS} FROM messages m JOIN users u ON u.id=m.sender_id
                   LEFT JOIN attachments a ON a.message_id=m.id WHERE m.id=?''', (cur.lastrowid,)).fetchone())
+            mentions=record_pings(c,u['id'],body,'channel' if slug else 'dm',cur.lastrowid,slug or str(u['id']))
     except Exception:
         (ATTACHMENTS_DIR / stored).unlink(missing_ok=True)
         raise
+    await notify_pings(mentions)
     if slug:
         await emit('channel:' + slug, {'type':'message','message':msg})
     else:
@@ -583,21 +725,23 @@ async def send_file_message(file: UploadFile, request: Request, body: str, slug:
     return msg
 
 @app.post('/api/channels/{slug}/attachments', status_code=201)
-async def upload_channel_file(slug: str, request: Request, file: UploadFile = File(...), body: str = Form(default='')):
-    return await send_file_message(file, request, body, slug, None)
+async def upload_channel_file(slug: str, request: Request, file: UploadFile = File(...), body: str = Form(default=''), reply_to_id: int | None = Form(default=None)):
+    return await send_file_message(file, request, body, slug, None, reply_to_id)
 
 @app.post('/api/dms/{other_id}/attachments', status_code=201)
-async def upload_dm_file(other_id: int, request: Request, file: UploadFile = File(...), body: str = Form(default='')):
-    return await send_file_message(file, request, body, None, other_id)
+async def upload_dm_file(other_id: int, request: Request, file: UploadFile = File(...), body: str = Form(default=''), reply_to_id: int | None = Form(default=None)):
+    return await send_file_message(file, request, body, None, other_id, reply_to_id)
 
-POST_COLS = '''p.id,p.title,p.body,p.created_at, u.id AS user_id,u.username,u.display_name,u.avatar,u.role,
+POST_COLS = '''p.id,p.title,p.body,p.created_at,
+                (SELECT COUNT(*) FROM comments cc WHERE cc.post_id=p.id) AS comment_count, u.id AS user_id,u.username,u.display_name,u.avatar,u.role,
                 a.id AS attachment_id,a.filename AS attachment_filename,
                 a.media_type AS attachment_mime,a.size AS attachment_size'''
 def post_dict(r):
     return {'id':r['id'], 'title':r['title'], 'body':r['body'], 'created_at':r['created_at'],
             'user': {'id':r['user_id'], 'username':r['username'], 'display_name':r['display_name'],
                      'avatar':r['avatar'], 'role':r['role']},
-            'attachment': attachment_dict(r) if r['attachment_id'] is not None else None}
+            'attachment': attachment_dict(r) if r['attachment_id'] is not None else None,
+            'comment_count':r['comment_count']}
 
 def get_post(c, post_id):
     return post_dict(c.execute(f'''SELECT {POST_COLS} FROM posts p JOIN users u ON u.id=p.author_id
@@ -614,15 +758,18 @@ def list_posts(request: Request, before: int | None = None):
     return [post_dict(r) for r in rows]
 
 @app.post('/api/posts', status_code=201)
-def publish_post(data: NewPost, request: Request):
+async def publish_post(data: NewPost, request: Request):
     u = require_user(request)
     title = data.title.strip()
     if not title:
         raise HTTPException(400, 'Post title cannot be empty.')
-    throttle(request,'post',20,3600)
+    check_spam(u,'post',title+' '+data.body)
     with db() as c:
         cur=c.execute('INSERT INTO posts(author_id,title,body) VALUES (?,?,?)', (u['id'],title,data.body.strip()))
-        return get_post(c,cur.lastrowid)
+        mentions=record_pings(c,u['id'],title+' '+data.body,'post',cur.lastrowid,'posts')
+        result=get_post(c,cur.lastrowid)
+    await notify_pings(mentions)
+    return result
 
 @app.post('/api/posts/with-file', status_code=201)
 async def publish_post_with_file(request: Request, file: UploadFile=File(...), title: str=Form(...), body: str=Form(default='')):
@@ -630,17 +777,81 @@ async def publish_post_with_file(request: Request, file: UploadFile=File(...), t
     title=title.strip()
     if not title or len(title)>120 or len(body)>5000:
         raise HTTPException(400,'Invalid post title or body.')
-    throttle(request,'post',20,3600)
+    check_spam(u,'post',title+' '+body)
     name,stored,mime,size=await store_attachment(file,request)
     try:
         with db() as c:
             cur=c.execute('INSERT INTO posts(author_id,title,body) VALUES (?,?,?)',(u['id'],title,body.strip()))
             c.execute('INSERT INTO attachments(sender_id,post_id,filename,stored_name,media_type,size) VALUES (?,?,?,?,?,?)',
                       (u['id'],cur.lastrowid,name,stored,mime,size))
-            return get_post(c,cur.lastrowid)
+            mentions=record_pings(c,u['id'],title+' '+body,'post',cur.lastrowid,'posts')
+            result=get_post(c,cur.lastrowid)
     except Exception:
         (ATTACHMENTS_DIR/stored).unlink(missing_ok=True)
         raise
+    await notify_pings(mentions)
+    return result
+
+COMMENT_COLS = """c.id,c.post_id,c.body,c.created_at,u.id AS user_id,u.username,u.display_name,u.avatar,u.role"""
+def comment_dict(row):
+    return {'id':row['id'],'post_id':row['post_id'],'body':row['body'],'created_at':row['created_at'],
+            'user': {'id':row['user_id'],'username':row['username'],'display_name':row['display_name'],
+                     'avatar':row['avatar'],'role':row['role']}}
+
+@app.get('/api/posts/{post_id}/comments')
+def list_comments(post_id: int, request: Request):
+    require_user(request)
+    with db() as c:
+        if not c.execute('SELECT 1 FROM posts WHERE id=?',(post_id,)).fetchone():
+            raise HTTPException(404,'Post not found.')
+        return [comment_dict(r) for r in c.execute(f"""SELECT {COMMENT_COLS} FROM comments c
+                  JOIN users u ON u.id=c.author_id WHERE c.post_id=? ORDER BY c.id DESC LIMIT 200""",(post_id,))][::-1]
+
+@app.post('/api/posts/{post_id}/comments', status_code=201)
+async def add_comment(post_id: int, data: NewComment, request: Request):
+    u=require_user(request)
+    body=data.body.strip()
+    if not body:
+        raise HTTPException(400,'Comment cannot be empty.')
+    with db() as c:
+        if not c.execute('SELECT 1 FROM posts WHERE id=?',(post_id,)).fetchone():
+            raise HTTPException(404,'Post not found.')
+    check_spam(u,'comment',body)
+    with db() as c:
+        row=c.execute('INSERT INTO comments(post_id,author_id,body) VALUES (?,?,?)',(post_id,u['id'],body))
+        mentions=record_pings(c,u['id'],body,'post',post_id,'comments')
+        result=comment_dict(c.execute(f"""SELECT {COMMENT_COLS} FROM comments c JOIN users u ON u.id=c.author_id WHERE c.id=?""",(row.lastrowid,)).fetchone())
+    await notify_pings(mentions)
+    return result
+
+@app.delete('/api/posts/{post_id}/comments/{comment_id}')
+def delete_comment(post_id: int, comment_id: int, request: Request):
+    u=require_user(request)
+    with db() as c:
+        row=c.execute('SELECT * FROM comments WHERE id=? AND post_id=?',(comment_id,post_id)).fetchone()
+        if not row:
+            raise HTTPException(404,'Comment not found.')
+        if u['id']!=row['author_id'] and u['role']!='owner':
+            raise HTTPException(403,'Cannot delete this comment.')
+        c.execute('DELETE FROM comments WHERE id=?',(comment_id,))
+    return {'ok':True}
+
+@app.get('/api/notifications')
+def notifications(request: Request):
+    u=require_user(request)
+    with db() as c:
+        return [{'id':r['id'],'sender':r['username'],'sender_name':r['display_name'],
+                 'kind':r['kind'],'target_id':r['target_id'],'context':r['context'],
+                 'preview':r['preview'],'read':bool(r['read_at']),'created_at':r['created_at']}
+                for r in c.execute("""SELECT p.*, u.username,u.display_name FROM pings p JOIN users u ON u.id=p.sender_id
+                                  WHERE p.recipient_id=? ORDER BY p.id DESC LIMIT 60""",(u['id'],))]
+
+@app.post('/api/notifications/read')
+def mark_notifications_read(request: Request):
+    u=require_user(request)
+    with db() as c:
+        c.execute("UPDATE pings SET read_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE recipient_id=? AND read_at IS NULL",(u['id'],))
+    return {'ok':True}
 
 @app.delete('/api/posts/{post_id}')
 def delete_post(post_id: int, request: Request):
@@ -689,8 +900,14 @@ async def send_channel(slug: str, data: NewMessage, request: Request):
     if not body:
         raise HTTPException(400, 'Message cannot be empty.')
     with db() as c:
-        cur = c.execute('INSERT INTO messages(sender_id,channel_slug,body) VALUES (?,?,?)', (u['id'], slug, body))
+        validate_reply(c, data.reply_to_id, u['id'], slug, None)
+    check_spam(u,'message',body)
+    with db() as c:
+        validate_reply(c, data.reply_to_id, u['id'], slug, None)
+        cur = c.execute('INSERT INTO messages(sender_id,channel_slug,body,reply_to_id) VALUES (?,?,?,?)', (u['id'], slug, body, data.reply_to_id))
         msg = message_dict(c.execute(f'SELECT {MESSAGE_COLS} FROM messages m JOIN users u ON u.id=m.sender_id LEFT JOIN attachments a ON a.message_id=m.id WHERE m.id=?', (cur.lastrowid,)).fetchone())
+        mentions=record_pings(c,u['id'],body,'channel',cur.lastrowid,slug)
+    await notify_pings(mentions)
     await emit('channel:' + slug, {'type': 'message', 'message': msg})
     return msg
 
@@ -702,8 +919,14 @@ async def send_dm(other_id: int, data: NewMessage, request: Request):
     if not body:
         raise HTTPException(400, 'Message cannot be empty.')
     with db() as c:
-        cur = c.execute('INSERT INTO messages(sender_id,recipient_id,body) VALUES (?,?,?)', (u['id'], other_id, body))
+        validate_reply(c, data.reply_to_id, u['id'], None, other_id)
+    check_spam(u,'message',body)
+    with db() as c:
+        validate_reply(c, data.reply_to_id, u['id'], None, other_id)
+        cur = c.execute('INSERT INTO messages(sender_id,recipient_id,body,reply_to_id) VALUES (?,?,?,?)', (u['id'], other_id, body, data.reply_to_id))
         msg = message_dict(c.execute(f'SELECT {MESSAGE_COLS} FROM messages m JOIN users u ON u.id=m.sender_id LEFT JOIN attachments a ON a.message_id=m.id WHERE m.id=?', (cur.lastrowid,)).fetchone())
+        mentions=record_pings(c,u['id'],body,'dm',cur.lastrowid,str(other_id))
+    await notify_pings(mentions)
     room = dm_key(u['id'], other_id)
     await emit(room, {'type': 'message', 'message': msg})
     # Notify the recipient even if they're viewing a public channel or another DM.
@@ -757,7 +980,3 @@ async def websocket(ws: WebSocket):
     finally:
         connections.pop(ws, None)
         await presence()
-
-# Extended community features register additional API routes and spam middleware.
-import extras
-extras.install(app)

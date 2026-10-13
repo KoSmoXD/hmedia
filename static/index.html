@@ -7,7 +7,6 @@
 <title>Mr H Media — your corner of the internet.</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
 <link rel="stylesheet" href="/static/styles.css" />
-<link rel="stylesheet" href="/static/extras.css?v=4">
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" class="svg-sprite" aria-hidden="true">
@@ -91,10 +90,10 @@
     <div class="user-dock"><div id="dock-avatar"></div><div class="dock-meta"><strong id="dock-name">username</strong><span id="dock-handle">@username</span></div><button type="button" class="icon-button" id="dock-settings" title="User settings"><svg><use href="#i-settings" /></svg></button></div>
   </aside>
   <main class="chat-main">
-    <header class="chat-header"><button class="mobile-menu icon-button" id="mobile-menu" title="Open channels"><svg><use href="#i-menu" /></svg></button><div class="header-icon" id="header-symbol"><svg><use href="#i-hash" /></svg></div><div class="header-title"><strong id="room-name">general</strong><span class="header-sep"></span><span id="room-topic">the place for everything. say hello.</span></div><div class="header-tools"><button class="icon-button" id="header-members" title="Toggle member list"><svg><use href="#i-users" /></svg></button><button class="icon-button" id="header-search" title="Find people"><svg><use href="#i-search" /></svg></button></div></header>
+    <header class="chat-header"><button class="mobile-menu icon-button" id="mobile-menu" title="Open channels"><svg><use href="#i-menu" /></svg></button><div class="header-icon" id="header-symbol"><svg><use href="#i-hash" /></svg></div><div class="header-title"><strong id="room-name">general</strong><span class="header-sep"></span><span id="room-topic">the place for everything. say hello.</span></div><div class="header-tools"><button class="icon-button notif-button" id="notification-button" title="Mentions and pings" aria-label="Notifications"><svg><use href="#i-bell" /></svg><span id="notification-count" class="notification-count" hidden>0</span></button><button class="icon-button" id="header-members" title="Toggle member list"><svg><use href="#i-users" /></svg></button><button class="icon-button" id="header-search" title="Find people"><svg><use href="#i-search" /></svg></button></div></header>
     <div class="chat-scroller" id="chat-scroller"><div id="older-holder" class="older-holder"></div><div id="messages"></div></div>
     <div class="typing-indicator" id="typing-indicator"></div>
-    <div class="composer-area" id="composer-area"><div class="selected-file" id="selected-file" hidden></div><form id="message-form" class="composer"><input type="file" id="chat-file" hidden><button type="button" class="composer-tool attachment-trigger" id="add-attachment" title="Attach a file (up to 8 MB)"><svg><use href="#i-paperclip" /></svg></button><textarea id="message-input" rows="1" maxlength="2000" placeholder="Message #general" aria-label="Your message"></textarea><button type="button" id="emoji-button" class="composer-tool" title="Insert emoji"><svg><use href="#i-smile" /></svg></button><button type="submit" class="composer-send" id="send-button" title="Send message"><svg><use href="#i-send" /></svg></button></form><div id="emoji-popover" class="emoji-popover" hidden></div><div class="compose-note">be kind. be real. <span>enter to send · shift+enter for new line</span></div></div>
+    <div class="composer-area" id="composer-area"><div class="reply-composer" id="reply-composer" hidden></div><div class="selected-file" id="selected-file" hidden></div><form id="message-form" class="composer"><input type="file" id="chat-file" hidden><button type="button" class="composer-tool attachment-trigger" id="add-attachment" title="Attach a file (up to 8 MB)"><svg><use href="#i-paperclip" /></svg></button><textarea id="message-input" rows="1" maxlength="2000" placeholder="Message #general" aria-label="Your message"></textarea><button type="button" id="emoji-button" class="composer-tool" title="Insert emoji"><svg><use href="#i-smile" /></svg></button><button type="submit" class="composer-send" id="send-button" title="Send message"><svg><use href="#i-send" /></svg></button></form><div id="emoji-popover" class="emoji-popover" hidden></div><div class="compose-note">be kind. be real. <span>enter to send · shift+enter for new line</span></div></div>
   </main>
   <aside class="members-pane" id="members-pane"><div class="members-head"><span>THE COMMUNITY</span><span id="members-total">0 MEMBERS</span></div><div class="members-scroll"><div class="community-badge"><span>✳</span><div><strong>good to have you here.</strong><p>every great conversation starts with hello.</p></div></div><div class="section-header member-group">ONLINE — <span id="online-count">0</span></div><div id="online-list"></div><div class="section-header member-group">OFFLINE — <span id="offline-count">0</span></div><div id="offline-list"></div></div></aside>
 </div>
@@ -102,6 +101,5 @@
 <div id="modal-backdrop" class="modal-backdrop" hidden><section id="modal-content" class="modal-content" role="dialog" aria-modal="true" aria-label="Dialog"></section></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <script src="/static/app.js" defer></script>
-<script src="/static/extras.js?v=4" defer></script>
 </body>
 </html>
