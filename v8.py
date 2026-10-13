@@ -362,10 +362,26 @@ def install(ns):
         try:
             with Image.open(io.BytesIO(raw)) as image:
                 if image.format not in ('PNG','WEBP','GIF'):raise ValueError('Unsupported format')
-                image.thumbnail((128,128))
-                buffer=io.BytesIO();image.convert('RGBA').save(buffer,format='PNG')
-        except (OSError,ValueError,UnidentifiedImageError):raise HTTPException(400,'Invalid image.')
-        stored='emoji_'+secrets.token_hex(16)+'.png'
+                if image.width*image.height>4_000_000:raise ValueError('Image dimensions too large')
+                is_animated=image.format=='GIF' and getattr(image,'n_frames',1)>1
+                buffer=io.BytesIO()
+                if is_animated:
+                    if image.n_frames>100:raise ValueError('Too many animation frames')
+                    frames=[];durations=[]
+                    for frame in ImageSequence.Iterator(image):
+                        resized=frame.convert('RGBA')
+                        resized.thumbnail((128,128),Image.Resampling.LANCZOS)
+                        frames.append(resized)
+                        durations.append(max(20,int(frame.info.get('duration',100))))
+                    frames[0].save(buffer,format='GIF',save_all=True,append_images=frames[1:],duration=durations,loop=image.info.get('loop',0),disposal=2,optimize=True)
+                    ext='gif'
+                else:
+                    image.thumbnail((128,128),Image.Resampling.LANCZOS)
+                    image.convert('RGBA').save(buffer,format='PNG')
+                    ext='png'
+                if buffer.tell()>1024*1024:raise ValueError('Processed emoji exceeds 1 MB')
+        except (OSError,ValueError,UnidentifiedImageError) as e:raise HTTPException(400,'Invalid or oversized emoji image.') from e
+        stored='emoji_'+secrets.token_hex(16)+'.'+ext
         (UPLOADS/stored).write_bytes(buffer.getvalue())
         try:
             with db() as c:
@@ -378,10 +394,10 @@ def install(ns):
     @app.get('/api/emojis/file/{filename}')
     def emoji_file(filename:str,request:Request):
         require_user(request)
-        if not re.fullmatch(r'emoji_[0-9a-f]{32}\.png',filename):raise HTTPException(404)
+        if not re.fullmatch(r'emoji_[0-9a-f]{32}\.(png|gif)',filename):raise HTTPException(404)
         path=UPLOADS/filename
         if not path.is_file():raise HTTPException(404)
-        return FileResponse(path,media_type='image/png',headers={'Cache-Control':'private,max-age=86400'})
+        return FileResponse(path,media_type='image/gif' if filename.endswith('.gif') else 'image/png',headers={'Cache-Control':'private,max-age=86400','X-Content-Type-Options':'nosniff'})
 
     @app.patch('/api/me/notifications')
     def notification_prefs(data:NotificationSettings,request:Request):

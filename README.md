@@ -134,3 +134,13 @@ python tests/browser_v8_mock.py
 ```
 
 The Playwright UI smoke test uses mocked browser networking. Real WebRTC connections across devices still need separate testing; configure `WEBRTC_ICE_SERVERS` with working TURN credentials if public calls must connect reliably across restrictive networks.
+
+### Custom emoji fixes (v8.1)
+
+Uploaded emojis appear as images when their `:name:` shortcodes are used in chat,
+group messages, and message reactions. Emoji lists refresh when the picker is opened;
+previously loaded messages are re-rendered after login. The settings panel has a
+Custom emojis catalog; members with `manage_emoji` can upload new ones. Animated
+GIF uploads now preserve animation (up to 100 frames, 1 MB uploaded/processed).
+Emoji image requests require a logged-in account. PNG, WebP (converted to PNG),
+and GIF uploads are supported.

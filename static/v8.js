@@ -3,12 +3,49 @@
 const V8_EMOJI=['👍','❤️','😂','🔥','🎉','👀','😭','✨','💜','💯'];
 let v8CustomEmojis=[];
 function v8HasPermission(permission){return state.v8Permissions.includes('*')||state.v8Permissions.includes(permission)}
-function v8ReactionHtml(m){return `<div class="v8-reactions">${(m.reactions||[]).map(r=>`<button class="v8-reaction" data-react-message="${m.id}" data-react-value="${escapeHtml(r.emoji)}">${escapeHtml(r.emoji)} ${r.count}</button>`).join('')}</div>`}
+function v8EmojiAsset(code){
+  const match=/^:([a-zA-Z0-9_]{2,24}):$/.exec(code);
+  return match ? v8CustomEmojis.find(e=>e.name===match[1] && /^\/api\/emojis\/file\/emoji_[a-f0-9]{32}\.(png|gif)$/.test(e.url)) : null;
+}
+function v8EmojiImage(emoji,cls='v8-inline-emoji'){
+  return `<img class="${cls}" src="${escapeHtml(emoji.url)}" alt=":${escapeHtml(emoji.name)}:" title=":${escapeHtml(emoji.name)}:" loading="lazy">`;
+}
+function v8RenderMessageText(text){
+  return String(text??'').split(/(:[a-zA-Z0-9_]{2,24}:)/g).map(part=>{
+    const emoji=v8EmojiAsset(part);
+    return emoji?v8EmojiImage(emoji):pingify(part);
+  }).join('');
+}
+function v8ReactionHtml(m){return `<div class="v8-reactions">${(m.reactions||[]).map(r=>{
+    const emoji=v8EmojiAsset(r.emoji);
+    return `<button type="button" class="v8-reaction" data-react-message="${m.id}" data-react-value="${escapeHtml(r.emoji)}" title="${escapeHtml(r.emoji)}">${emoji?v8EmojiImage(emoji,'v8-reaction-emoji'):escapeHtml(r.emoji)} <span>${r.count}</span></button>`;
+  }).join('')}</div>`}
+function v8HydrateEmojis(){
+  document.querySelectorAll('.message[data-msg]').forEach(el=>{
+    const m=state.msgById.get(Number(el.dataset.msg));
+    if(!m)return;
+    const body=el.querySelector('.message-text');
+    if(body)body.innerHTML=v8RenderMessageText(m.body);
+    const reactions=el.querySelector('.v8-reactions');
+    if(reactions)reactions.outerHTML=v8ReactionHtml(m);
+  });
+}
+async function v8RefreshEmojis(){
+  try{
+    const list=await api('/api/emojis');
+    const prev=JSON.stringify(v8CustomEmojis);
+    v8CustomEmojis=list;
+    if(prev!==JSON.stringify(list)){
+      v8BuildEmojiPicker();
+      v8HydrateEmojis();
+    }
+  }catch(e){showToast('Could not refresh custom emojis.');}
+}
 function v8Notify(text,tag){if(state.me?.notification_settings?.desktop && 'Notification' in window && Notification.permission==='granted' && document.hidden){new Notification('Mr H Media',{body:text.slice(0,150),tag})}}
 async function v8Initialize(){
   try{const [meta,groups,emojis]=await Promise.all([api('/api/v8/meta'),api('/api/groups'),api('/api/emojis')]);state.v8Permissions=meta.permissions;state.groups=groups;v8CustomEmojis=emojis;renderGroupList();
     $('new-channel').hidden=!v8HasPermission('manage_channels');$('new-voice').hidden=!v8HasPermission('manage_channels');$('owner-moderation').hidden=!v8HasPermission('moderate');
-    await v8Unread();v8BuildEmojiPicker();
+    await v8Unread();v8BuildEmojiPicker();v8HydrateEmojis();
   }catch(error){console.warn('v8 unavailable',error)}
 }
 function renderGroupList(){const root=$('group-list');if(!root)return;root.innerHTML=state.groups.map(g=>`<div class="channel-line"><button class="channel-item ${state.unreadRooms?.['group:'+g.id]&&!(state.mode==='group'&&state.group===g.id)?'v8-unread':''} ${state.mode==='group'&&state.group===g.id?'active':''}" data-open-group="${g.id}">👥 <span>${escapeHtml(g.name)}</span></button><button class="delete-channel" data-group-call="${g.id}" title="Join private group call">☎</button></div>`).join('')}
@@ -48,8 +85,8 @@ setInterval(()=>{if(state.me){v8Unread();v8ReloadGroups()}},15000);
 const v8OriginalLoadNotifications=loadNotifications;
 loadNotifications=async(...args)=>{const prior=new Set((state.notifications||[]).filter(n=>!n.read).map(n=>n.id));await v8OriginalLoadNotifications(...args);const arrived=(state.notifications||[]).filter(n=>!n.read&&!prior.has(n.id));if(arrived.length && prior.size>0)v8Notify(arrived[0].preview||'New mention','mention-'+arrived[0].id)};
 function v8BuildEmojiPicker(){const pop=$('emoji-popover');if(!pop)return;const old=pop.querySelector('.v8-custom');old?.remove();if(!v8CustomEmojis.length)return;const area=document.createElement('div');area.className='v8-custom';area.innerHTML='<small>CUSTOM EMOJI</small>'+v8CustomEmojis.map(e=>`<button data-v8-emoji=":${escapeHtml(e.name)}:" type="button" title=":${escapeHtml(e.name)}:"><img src="${escapeHtml(e.url)}" alt="${escapeHtml(e.name)}"></button>`).join('');pop.append(area)}
-function v8EmojiPicker(messageId){v8Popup('React to message',`<div class="v8-emoji-grid">${V8_EMOJI.map(e=>`<button type="button" data-react-message="${messageId}" data-react-value="${e}">${e}</button>`).join('')}${v8CustomEmojis.map(e=>`<button type="button" data-react-message="${messageId}" data-react-value=":${escapeHtml(e.name)}:"><img width="24" height="24" src="${escapeHtml(e.url)}"></button>`).join('')}</div>`)}
-async function v8Thread(id){try{const data=await api('/api/messages/'+id+'/thread');v8Popup('Message thread',`<p class="muted-p">Replies connected to the selected message.</p><div class="v8-scroll">${data.map(m=>`<div class="v8-thread-row"><strong>@${escapeHtml(m.username)}</strong> <small>${formatTime(m.created_at)}</small><p>${pingify(m.body)}</p></div>`).join('')}</div><button class="save-btn" data-v8-thread-reply="${id}">Reply in chat</button>`)}catch(e){showToast(e.message)}}
+async function v8EmojiPicker(messageId){await v8RefreshEmojis();v8Popup('React to message',`<div class="v8-emoji-grid">${V8_EMOJI.map(e=>`<button type="button" data-react-message="${messageId}" data-react-value="${e}">${e}</button>`).join('')}${v8CustomEmojis.map(e=>`<button type="button" data-react-message="${messageId}" data-react-value=":${escapeHtml(e.name)}:"><img width="24" height="24" src="${escapeHtml(e.url)}"></button>`).join('')}</div>`)}
+async function v8Thread(id){try{const data=await api('/api/messages/'+id+'/thread');v8Popup('Message thread',`<p class="muted-p">Replies connected to the selected message.</p><div class="v8-scroll">${data.map(m=>`<div class="v8-thread-row"><strong>@${escapeHtml(m.username)}</strong> <small>${formatTime(m.created_at)}</small><p>${v8RenderMessageText(m.body)}</p></div>`).join('')}</div><button class="save-btn" data-v8-thread-reply="${id}">Reply in chat</button>`)}catch(e){showToast(e.message)}}
 async function v8Pins(){if(state.mode!=='channel')return showToast('Open a public channel first.');try{const rows=await api(`/api/channels/${state.room}/pins`);v8Popup('Pinned messages',rows.map(m=>`<button class="v8-pin-row" data-v8-jump="${m.id}"><strong>@${escapeHtml(m.username)}</strong> ${escapeHtml(m.body.slice(0,180))}</button>`).join('')||'<p>No pinned messages yet.</p>')}catch(e){showToast(e.message)}}
 async function v8Search(){v8Popup('Search messages',`<form id="v8-search-form" class="modal-form"><label>SEARCH TERMS</label><input name="q" minlength="2" maxlength="80" required placeholder="Search community chat..."><label><input type="checkbox" name="current" checked> Search this channel only</label><button class="save-btn" type="submit">Search</button></form><div class="v8-scroll" id="v8-search-results"></div>`);$('v8-search-form').onsubmit=async e=>{e.preventDefault();const f=e.target;const url='/api/search/messages?q='+encodeURIComponent(f.elements.q.value)+(f.elements.current.checked&&state.mode==='channel'?'&channel='+encodeURIComponent(state.room):'');try{const rows=await api(url);$('v8-search-results').innerHTML=rows.length?rows.map(r=>`<button class="v8-pin-row" data-v8-result-channel="${escapeHtml(r.channel_slug)}" data-v8-jump="${r.id}"><strong>#${escapeHtml(r.channel_slug)} · @${escapeHtml(r.username)}</strong><span>${escapeHtml(r.body.slice(0,180))}</span></button>`).join(''):'No results.'}catch(err){showToast(err.message)}}}
 async function v8Preferences(){const p=state.me.notification_settings||{};v8Popup('Notification settings',`<form id="v8-notification-form" class="modal-form">${[['desktop','Desktop notifications'],['mentions','Mention alerts'],['dms','Private message alerts'],['friends','Friend request alerts']].map(([k,n])=>`<label class="v8-switch"><input type="checkbox" name="${k}" ${p[k]?'checked':''}> ${n}</label>`).join('')}<button type="submit" class="save-btn">Save preferences</button></form>`);$('v8-notification-form').onsubmit=async e=>{e.preventDefault();const form=e.target;const o={};for(const k of ['desktop','mentions','dms','friends'])o[k]=form.elements[k].checked;try{if(o.desktop&&'Notification' in window&&Notification.permission==='default')await Notification.requestPermission();state.me.notification_settings=await api('/api/me/notifications',{method:'PATCH',body:JSON.stringify(o)});closeModal();showToast('Notification settings saved.')}catch(err){showToast(err.message)}}}
@@ -58,8 +95,12 @@ async function v8ProfileEditor(){const u=state.me;v8Popup('Customize profile',`<
   $('v8-banner-form').onsubmit=async e=>{e.preventDefault();try{const fd=new FormData(e.target);const r=await api('/api/me/banner',{method:'POST',body:fd});state.me.banner=r.banner;closeModal();showToast('Banner updated.')}catch(err){showToast(err.message)}}}
 async function v8Roles(){try{const roles=await api('/api/roles');v8Popup('Roles & permissions',`<p>Roles determine what people can manage in this community.</p><div class="v8-scroll">${roles.map(r=>`<div class="v8-role"><b style="color:${r.color}">${escapeHtml(r.name)}</b><small>${r.permissions.join(', ')||'No special permissions'}</small></div>`).join('')}</div><form class="modal-form" id="v8-role-form"><label>NEW ROLE ID</label><input name="slug" pattern="[a-z][a-z0-9_-]{1,23}" required placeholder="artist"><label>DISPLAY NAME</label><input name="name" maxlength="30" required placeholder="Artist"><label>ROLE COLOR</label><input type="color" name="color" value="#a990fc"><label>PERMISSIONS</label>${[['manage_channels','Manage channels'],['moderate','Moderation'],['ban_users','Ban users'],['manage_emoji','Manage emojis'],['manage_roles','Manage roles'],['manage_posts','Manage posts']].map(([k,label])=>`<label><input type="checkbox" value="${k}" name="perm"> ${label}</label>`).join('')}<button class="save-btn">Create role</button></form>`);$('v8-role-form').onsubmit=async e=>{e.preventDefault();const f=e.target;try{await api('/api/roles',{method:'POST',body:JSON.stringify({slug:f.elements.slug.value,name:f.elements.name.value,color:f.elements.color.value,permissions:[...new FormData(f).getAll('perm')]})});showToast('Role created.');v8Roles()}catch(err){showToast(err.message)}}}catch(err){showToast(err.message)}}
 async function v8AssignRole(id){try{const roles=await api('/api/roles');const chosen=prompt('Assign role ID to user #'+id+'\nAvailable: '+roles.filter(r=>r.slug!=='owner').map(r=>r.slug).join(', '));if(!chosen)return;await api(`/api/roles/assign/${id}`,{method:'POST',body:JSON.stringify({role:chosen})});closeModal();await refreshMembers();showToast('Role updated.')}catch(err){showToast(err.message)}}
-async function v8Moderation(){try{const logs=await api('/api/moderation/logs');v8Popup('Moderation & audit log',`<div class="v8-tools"><button data-v8-roles>Manage roles</button><button data-v8-emoji-upload>Add emoji</button><button data-v8-slowmode>Channel slowmode</button><button data-v8-timeout>Timeout user</button><button data-v8-bans>Ban management</button></div><h3>Recent actions</h3><div class="v8-scroll">${logs.map(l=>`<div class="v8-audit"><strong>${escapeHtml(l.action)}</strong> · @${escapeHtml(l.actor)} · ${escapeHtml(l.target)}<small>${formatTime(l.created_at)} ${escapeHtml(l.detail)}</small></div>`).join('')||'No moderation actions recorded.'}</div>`)}catch(e){showToast(e.message)}}
-async function v8EmojiUpload(){v8Popup('Add custom emoji',`<form class="modal-form" id="v8-emoji-form"><label>EMOJI NAME</label><input name="name" required pattern="[a-zA-Z0-9_]{2,24}" placeholder="mrh"><label>IMAGE (PNG, WEBP, GIF)</label><input name="file" type="file" accept="image/png,image/webp,image/gif" required><button class="save-btn">Upload emoji</button></form>`);$('v8-emoji-form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);try{await api('/api/emojis?name='+encodeURIComponent(fd.get('name')),{method:'POST',body:(()=>{const b=new FormData();b.append('file',fd.get('file'));return b})()});v8CustomEmojis=await api('/api/emojis');v8BuildEmojiPicker();closeModal();showToast('Emoji uploaded.')}catch(err){showToast(err.message)}}}
+async function v8Moderation(){try{const logs=await api('/api/moderation/logs');v8Popup('Moderation & audit log',`<div class="v8-tools"><button data-v8-roles>Manage roles</button>${v8HasPermission('manage_emoji')?'<button data-v8-emoji-upload>Add emoji</button>':''}<button data-v8-slowmode>Channel slowmode</button><button data-v8-timeout>Timeout user</button><button data-v8-bans>Ban management</button></div><h3>Recent actions</h3><div class="v8-scroll">${logs.map(l=>`<div class="v8-audit"><strong>${escapeHtml(l.action)}</strong> · @${escapeHtml(l.actor)} · ${escapeHtml(l.target)}<small>${formatTime(l.created_at)} ${escapeHtml(l.detail)}</small></div>`).join('')||'No moderation actions recorded.'}</div>`)}catch(e){showToast(e.message)}}
+async function v8ManageEmojis(){
+  await v8RefreshEmojis();
+  v8Popup('Custom emojis',`<p class="muted-p">Type :name: in a message or select an emoji from the smile picker.</p><div class="v8-emoji-grid">${v8CustomEmojis.map(e=>`<div class="v8-emoji-catalog-item">${v8EmojiImage(e)}<small>:${escapeHtml(e.name)}:</small></div>`).join('')||'<p>No custom emojis yet.</p>'}</div>${v8HasPermission('manage_emoji')?'<button type="button" class="save-btn" data-v8-emoji-upload>Add custom emoji</button>':''}`);
+}
+async function v8EmojiUpload(){if(!v8HasPermission('manage_emoji'))return showToast('You do not have permission to upload emojis.');v8Popup('Add custom emoji',`<form class="modal-form" id="v8-emoji-form"><label>EMOJI NAME</label><input name="name" required pattern="[a-zA-Z0-9_]{2,24}" placeholder="mrh"><label>IMAGE (PNG, WEBP, GIF)</label><input name="file" type="file" accept="image/png,image/webp,image/gif" required><button class="save-btn">Upload emoji</button></form>`);$('v8-emoji-form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);try{await api('/api/emojis?name='+encodeURIComponent(fd.get('name')),{method:'POST',body:(()=>{const b=new FormData();b.append('file',fd.get('file'));return b})()});v8CustomEmojis=await api('/api/emojis');v8BuildEmojiPicker();closeModal();showToast('Emoji uploaded.')}catch(err){showToast(err.message)}}}
 async function v8Slowmode(){if(state.mode!=='channel')return showToast('Open a channel first.');const value=prompt('Slowmode in #'+state.room+' (seconds, 0 to disable):','5');if(value===null)return;try{await api(`/api/channels/${state.room}/slowmode`,{method:'PATCH',body:JSON.stringify({seconds:Number(value)})});showToast('Slowmode updated.')}catch(err){showToast(err.message)}}
 async function v8Timeout(){const userId=Number(prompt('User ID to timeout:'));if(!userId)return;const seconds=Number(prompt('Timeout duration (seconds, 0 to remove):','300'));try{await api(`/api/moderation/users/${userId}/timeout`,{method:'POST',body:JSON.stringify({seconds,reason:'Moderator action'})});showToast('Timeout updated.')}catch(err){showToast(err.message)}}
 // Delegated buttons work in modals, user profiles, reactions and the message list.
@@ -83,7 +124,7 @@ document.addEventListener('click',async e=>{
     else if(b.hasAttribute('data-v8-slowmode'))v8Slowmode();
     else if(b.hasAttribute('data-v8-timeout'))v8Timeout();
     else if(b.hasAttribute('data-v8-bans'))openModeration();
-    else if(b.dataset.v8Emoji){$('message-input').value+=b.dataset.v8Emoji+' ';$('message-input').focus();$('emoji-popover').hidden=true}
+    else if(b.dataset.v8Emoji){/* handled by the composer emoji picker */}
     else if(b.dataset.thread)v8Thread(+b.dataset.thread);
     else if(b.dataset.pin){const r=await api('/api/messages/'+b.dataset.pin+'/pin',{method:'POST'});showToast(r.pinned?'Message pinned.':'Message unpinned.')}
     else if(b.dataset.reaction)v8EmojiPicker(+b.dataset.reaction);
@@ -92,7 +133,8 @@ document.addEventListener('click',async e=>{
   }catch(err){showToast(err.message)}
 });
 // Put the richer options in the existing Settings panel, without replacing existing tabs.
-const v8OldOpenSettings=openSettings;openSettings=function(tab='account'){v8OldOpenSettings(tab);const nav=$('modal-content').querySelector('.settings-sidebar');if(nav){const other=document.createElement('div');other.innerHTML='<div class="settings-label">COMMUNITY</div><button class="settings-nav" id="v8-custom-profile">Profile banner & status</button><button class="settings-nav" id="v8-notif-settings">Notifications</button><button class="settings-nav" id="v8-pins-settings">Pinned messages</button><button class="settings-nav" id="v8-search-settings">Search chat</button>'+(v8HasPermission('moderate')?'<button class="settings-nav" id="v8-moderation-settings">Moderation & roles</button>':'');nav.insertBefore(other,nav.querySelector('.settings-logout'));other.querySelector('#v8-custom-profile').onclick=v8ProfileEditor;other.querySelector('#v8-notif-settings').onclick=v8Preferences;other.querySelector('#v8-pins-settings').onclick=v8Pins;other.querySelector('#v8-search-settings').onclick=v8Search;other.querySelector('#v8-moderation-settings')?.addEventListener('click',v8Moderation)}};
+$('emoji-button').addEventListener('click',()=>{if(!$('emoji-popover').hidden)void v8RefreshEmojis()});
+const v8OldOpenSettings=openSettings;openSettings=function(tab='account'){v8OldOpenSettings(tab);const nav=$('modal-content').querySelector('.settings-sidebar');if(nav){const other=document.createElement('div');other.innerHTML='<div class="settings-label">COMMUNITY</div><button class="settings-nav" id="v8-custom-profile">Profile banner & status</button><button class="settings-nav" id="v8-notif-settings">Notifications</button><button class="settings-nav" id="v8-emoji-settings">Custom emojis</button><button class="settings-nav" id="v8-pins-settings">Pinned messages</button><button class="settings-nav" id="v8-search-settings">Search chat</button>'+(v8HasPermission('moderate')?'<button class="settings-nav" id="v8-moderation-settings">Moderation & roles</button>':'');nav.insertBefore(other,nav.querySelector('.settings-logout'));other.querySelector('#v8-custom-profile').onclick=v8ProfileEditor;other.querySelector('#v8-notif-settings').onclick=v8Preferences;other.querySelector('#v8-emoji-settings').onclick=v8ManageEmojis;other.querySelector('#v8-pins-settings').onclick=v8Pins;other.querySelector('#v8-search-settings').onclick=v8Search;other.querySelector('#v8-moderation-settings')?.addEventListener('click',v8Moderation)}};
 // Reuse the existing sidebar moderation entry for the expanded panel.
 $('owner-moderation').removeEventListener('click',openModeration);$('owner-moderation').addEventListener('click',v8Moderation);
 // Search and pins are accessible from the current channel header.
