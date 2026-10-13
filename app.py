@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
+import v8
 
 BASE = Path(__file__).resolve().parent
 DATA = Path(os.environ.get('DATA_DIR', str(BASE / 'data'))).resolve()
@@ -186,7 +187,7 @@ def check_password(password: str, stored: str) -> bool:
 def user_dict(r):
     return {'id': r['id'], 'username': r['username'], 'display_name': r['display_name'],
             'bio': r['bio'], 'avatar': r['avatar'], 'role': r['role'],
-            'theme': json.loads(r['theme'] or '{}')}
+            'theme': json.loads(r['theme'] or '{}'), **(v8_decorate_user(r) if 'v8_decorate_user' in globals() else {})}
 
 def auth_user(token: str | None):
     if not token:
@@ -229,6 +230,8 @@ SPAM_LIMITS = {'message': (6, 10, 35, 60), 'upload': (3, 60, 8, 3600),
                'avatar': (5, 3600, 5, 3600)}
 
 def check_spam(user, category: str, text: str):
+    if 'mod_timeout_until' in user.keys() and user['mod_timeout_until'] > time.time():
+        raise HTTPException(403, 'You are timed out and cannot send messages.')
     if user['role'] == 'owner':
         return
     limit, window, long_limit, long_window = SPAM_LIMITS[category]
@@ -263,7 +266,7 @@ def record_pings(c, actor_id: int, body: str, kind: str, target_id: int, context
     notified = []
     for username in names:
         user = c.execute('SELECT id FROM users WHERE username=? COLLATE NOCASE AND banned_at IS NULL',(username,)).fetchone()
-        if user and user['id'] != actor_id:
+        if user and user['id'] != actor_id and json.loads(c.execute('SELECT notification_settings FROM users WHERE id=?',(user['id'],)).fetchone()[0]).get('mentions',True):
             c.execute('INSERT INTO pings(recipient_id,sender_id,kind,target_id,context,preview) VALUES (?,?,?,?,?,?)',
                       (user['id'],actor_id,kind,target_id,context,body[:180]))
             notified.append(user['id'])
@@ -352,11 +355,17 @@ def signup(data: Credentials, response: Response, request: Request):
         raise HTTPException(400, 'Username must be 3–24 letters, numbers or underscores.')
     if len(data.password) < 8 or len(data.password) > 128:
         raise HTTPException(400, 'Password must be 8–128 characters.')
+    with db() as c:
+        recent=c.execute('SELECT COUNT(*) FROM raids WHERE created_at>?',(time.time()-600,)).fetchone()[0]
+        if recent>=40:raise HTTPException(429,'Signups temporarily limited because of unusually high activity.')
     try:
         with db() as c:
             cur = c.execute('INSERT INTO users(username,password_hash,display_name) VALUES (?,?,?)',
                             (data.username, hash_password(data.password), data.username))
             user_id = cur.lastrowid
+            ip=request.client.host if request.client else '?'
+            c.execute('INSERT INTO raids VALUES (?,?)',(hashlib.sha256(ip.encode()).hexdigest(),time.time()))
+            c.execute('DELETE FROM raids WHERE created_at<?',(time.time()-3600,))
     except sqlite3.IntegrityError:
         raise HTTPException(409, 'That username is already taken.')
     set_session(response, user_id)
@@ -441,32 +450,47 @@ async def upload_avatar(request: Request, file: UploadFile = File(...)):
         raise HTTPException(413, 'Maximum image size is 4 MB.')
     try:
         with Image.open(io.BytesIO(raw)) as im:
-            im.seek(0)
-            im.thumbnail((256, 256))
-            if im.mode not in ('RGB', 'RGBA'):
-                im = im.convert('RGBA')
-            out = io.BytesIO()
-            im.save(out, format='PNG', optimize=True)
+            animated = im.format == 'GIF' and getattr(im,'n_frames',1)>1
+            if animated:
+                if im.n_frames > 80 or im.width * im.height > 1_000_000:
+                    raise ValueError('Animated GIF too large')
+                frames=[]; durations=[]
+                for idx in range(im.n_frames):
+                    im.seek(idx)
+                    frame=im.convert('RGBA')
+                    frame.thumbnail((256,256))
+                    frames.append(frame)
+                    durations.append(max(40,min(1000,im.info.get('duration',100))))
+                out=io.BytesIO()
+                frames[0].save(out,format='GIF',save_all=True,append_images=frames[1:],duration=durations,loop=0,disposal=2)
+            else:
+                im.seek(0)
+                im.thumbnail((256, 256))
+                if im.mode not in ('RGB', 'RGBA'):
+                    im = im.convert('RGBA')
+                out = io.BytesIO()
+                im.save(out, format='PNG', optimize=True)
     except (UnidentifiedImageError, OSError, ValueError):
         raise HTTPException(400, 'That file is not a valid image.')
-    filename = f'{u["id"]}_{secrets.token_hex(12)}.png'
+    filename = f'{u["id"]}_{secrets.token_hex(12)}.'+('gif' if animated else 'png')
     (UPLOADS / filename).write_bytes(out.getvalue())
     old = u['avatar']
     with db() as c:
         c.execute('UPDATE users SET avatar=? WHERE id=?', ('/uploads/' + filename, u['id']))
         result = user_dict(c.execute('SELECT * FROM users WHERE id=?', (u['id'],)).fetchone())
-    if old and re.fullmatch(r'/uploads/[0-9]+_[a-f0-9]{24}\.png', old):
+    if old and re.fullmatch(r'/uploads/[0-9]+_[a-f0-9]{24}\.(png|jpg|gif)', old):
         (UPLOADS / old.split('/')[-1]).unlink(missing_ok=True)
     return result
 
 @app.get('/uploads/{filename}')
 def get_avatar(filename: str):
-    if not re.fullmatch(r'[0-9]+_[a-f0-9]{24}\.png', filename):
+    if not re.fullmatch(r'[0-9]+_[a-f0-9]{24}\.(png|jpg|gif)', filename):
         raise HTTPException(404)
     path = UPLOADS / filename
     if not path.is_file():
         raise HTTPException(404)
-    return FileResponse(path, media_type='image/png', headers={'Cache-Control': 'public, max-age=31536000, immutable'})
+    media={'png':'image/png','jpg':'image/jpeg','gif':'image/gif'}[filename.rsplit('.',1)[-1]]
+    return FileResponse(path, media_type=media, headers={'Cache-Control': 'public, max-age=31536000, immutable'})
 
 @app.get('/api/channels')
 def channels(request: Request):
@@ -477,7 +501,8 @@ def channels(request: Request):
 @app.post('/api/channels', status_code=201)
 def add_channel(data: NewChannel, request: Request):
     u = require_user(request)
-    require_owner(request)
+    if not v8_allowed(u,'manage_channels'):
+        raise HTTPException(403, 'Cannot manage channels.')
     slug = data.name.strip().lower().replace(' ', '-')
     if not CHANNEL_RE.fullmatch(slug):
         raise HTTPException(400, 'Channel name needs 2–28 lowercase letters, numbers or dashes.')
@@ -517,6 +542,7 @@ def message_dict(r):
             'user': {'id': r['user_id'], 'username': r['username'], 'display_name': r['display_name'],
                      'avatar': r['avatar'], 'role': r['role']},
             'attachment': attachment_dict(r) if r['attachment_id'] is not None else None,
+            'reactions': (v8_message_reactions(r['id']) if 'v8_message_reactions' in globals() else []),
             'reply': {'id': r['reply_to_id'], 'username': r['reply_username'],
                       'display_name': r['reply_display_name'], 'preview': r['reply_preview'],
                       'file': r['reply_file']} if r['reply_to_id'] else None}
@@ -559,6 +585,10 @@ def valid_recipient(current_id, other_id):
         row = c.execute('SELECT id FROM users WHERE id=? AND banned_at IS NULL', (other_id,)).fetchone()
     if not row:
         raise HTTPException(404, 'User not found.')
+    if 'v8_blocked' in globals():
+        with db() as c:
+            if v8_blocked(c,current_id,other_id):
+                raise HTTPException(403, 'You cannot message a blocked user.')
 
 @app.get('/api/channels/{slug}/messages')
 def channel_messages(slug: str, request: Request, before: int | None = None):
@@ -586,23 +616,28 @@ def dm_list(request: Request):
 # Owner moderation, with existing sessions revoked immediately.
 @app.get('/api/admin/users')
 def admin_users(request: Request):
-    require_owner(request)
+    actor=require_user(request)
+    if not (v8_allowed(actor,'moderate') or v8_allowed(actor,'ban_users')):raise HTTPException(403,'Not a moderator.')
     with db() as c:
         return [{**user_dict(r), 'banned': bool(r['banned_at']), 'ban_reason': r['ban_reason']}
                 for r in c.execute('SELECT * FROM users ORDER BY id DESC LIMIT 500')]
 
 @app.post('/api/admin/users/{user_id}/ban')
 async def ban_user(user_id: int, data: BanRequest, request: Request):
-    actor = require_owner(request)
+    actor = require_user(request)
+    if not v8_allowed(actor,'ban_users'):raise HTTPException(403,'Cannot ban members.')
     with db() as c:
         target = c.execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
         if not target:
             raise HTTPException(404, 'User not found.')
         if user_id == actor['id'] or target['role'] == 'owner':
             raise HTTPException(403, 'You cannot ban the owner.')
+        rank={'owner':100,'admin':75,'moderator':50,'vip':20,'member':10}
+        if rank.get(actor['role'],15)<=rank.get(target['role'],15):raise HTTPException(403,'Cannot ban same or higher role.')
         c.execute("UPDATE users SET banned_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),ban_reason=? WHERE id=?",
                   (data.reason.strip(), user_id))
         c.execute('DELETE FROM sessions WHERE user_id=?', (user_id,))
+        v8_audit(c,actor,'user.ban',user_id,data.reason.strip())
     for ws, (_, uid) in list(connections.items()):
         if uid == user_id:
             connections.pop(ws, None)
@@ -618,7 +653,8 @@ async def ban_user(user_id: int, data: BanRequest, request: Request):
 
 @app.post('/api/admin/users/{user_id}/unban')
 def unban_user(user_id: int, request: Request):
-    require_owner(request)
+    actor=require_user(request)
+    if not v8_allowed(actor,'ban_users'):raise HTTPException(403,'Cannot unban members.')
     with db() as c:
         target = c.execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
         if not target:
@@ -626,11 +662,13 @@ def unban_user(user_id: int, request: Request):
         if target['role'] == 'owner':
             raise HTTPException(403, 'The owner is not bannable.')
         c.execute("UPDATE users SET banned_at=NULL,ban_reason='' WHERE id=?", (user_id,))
+        v8_audit(c,actor,'user.unban',user_id)
     return {'ok': True}
 
 @app.delete('/api/channels/{slug}')
 async def delete_channel(slug: str, request: Request):
-    require_owner(request)
+    u=require_user(request)
+    if not v8_allowed(u,'manage_channels'):raise HTTPException(403,'Cannot manage channels.')
     if slug == 'general':
         raise HTTPException(403, 'The general channel cannot be removed.')
     with db() as c:
@@ -663,12 +701,17 @@ async def store_attachment(file: UploadFile, request: Request):
         try:
             with Image.open(io.BytesIO(data)) as im:
                 im.verify()
-            with Image.open(io.BytesIO(data)) as im:
-                im.thumbnail((1600, 1600))
-                output = io.BytesIO()
-                im.convert('RGB').save(output, format='PNG', optimize=True)
-                data = output.getvalue()
-            mime = 'image/png'
+            if Path(name).suffix.lower()=='.gif':
+                with Image.open(io.BytesIO(data)) as im:
+                    if getattr(im,'n_frames',1)>150 or im.width*im.height>4_000_000:raise ValueError('GIF is too large.')
+                mime='image/gif'  # preserve animated GIF instead of flattening to PNG
+            else:
+                with Image.open(io.BytesIO(data)) as im:
+                    im.thumbnail((1600, 1600))
+                    output = io.BytesIO()
+                    im.convert('RGB').save(output, format='PNG', optimize=True)
+                    data = output.getvalue()
+                mime = 'image/png'
         except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
             raise HTTPException(400, 'Invalid image.')
     if len(data) > MAX_ATTACHMENT_BYTES:
@@ -692,8 +735,8 @@ def download_attachment(attachment_id: int, request: Request):
     file = ATTACHMENTS_DIR / attachment['stored_name']
     if not file.is_file():
         raise HTTPException(404, 'File not available.')
-    is_image = attachment['media_type'] == 'image/png'
-    return FileResponse(file, media_type='image/png' if is_image else 'application/octet-stream',
+    is_image = attachment['media_type'] in ('image/png','image/gif')
+    return FileResponse(file, media_type=attachment['media_type'] if is_image else 'application/octet-stream',
                         filename=attachment['filename'], content_disposition_type='inline' if is_image else 'attachment',
                         headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'})
 
@@ -703,6 +746,12 @@ async def send_file_message(file: UploadFile, request: Request, body: str, slug:
         raise HTTPException(400, 'Message is too long.')
     if slug:
         valid_channel(slug)
+        with db() as c:
+            channel=c.execute('SELECT slowmode_seconds FROM channels WHERE slug=?',(slug,)).fetchone()
+            if channel and channel['slowmode_seconds']>0 and not v8_allowed(u,'moderate'):
+                last=c.execute('SELECT created_at FROM messages WHERE sender_id=? AND channel_slug=? ORDER BY id DESC LIMIT 1',(u['id'],slug)).fetchone()
+                if last and time.time()-datetime.fromisoformat(last['created_at'].replace('Z','+00:00')).timestamp()<channel['slowmode_seconds']:
+                    raise HTTPException(429,'Channel slowmode is enabled. Please wait.')
     else:
         valid_recipient(u['id'], recipient_id)
     with db() as c:
@@ -846,7 +895,7 @@ def delete_comment(post_id: int, comment_id: int, request: Request):
         row=c.execute('SELECT * FROM comments WHERE id=? AND post_id=?',(comment_id,post_id)).fetchone()
         if not row:
             raise HTTPException(404,'Comment not found.')
-        if u['id']!=row['author_id'] and u['role']!='owner':
+        if u['id']!=row['author_id'] and not v8_allowed(u,'manage_posts'):
             raise HTTPException(403,'Cannot delete this comment.')
         c.execute('DELETE FROM comments WHERE id=?',(comment_id,))
     return {'ok':True}
@@ -875,7 +924,7 @@ def delete_post(post_id: int, request: Request):
         post=c.execute('SELECT * FROM posts WHERE id=?',(post_id,)).fetchone()
         if not post:
             raise HTTPException(404,'Post not found.')
-        if post['author_id'] != u['id'] and u['role'] != 'owner':
+        if post['author_id'] != u['id'] and not v8_allowed(u,'manage_posts'):
             raise HTTPException(403,'You cannot delete this post.')
         files=[r['stored_name'] for r in c.execute('SELECT stored_name FROM attachments WHERE post_id=?',(post_id,))]
         c.execute('DELETE FROM posts WHERE id=?',(post_id,))
@@ -913,13 +962,14 @@ def voice_members(slug: str):
 def get_voice_channels(request: Request):
     require_user(request)
     with db() as c:
-        rooms = [dict(r) for r in c.execute('SELECT slug,name FROM voice_channels ORDER BY sort_order,slug')]
+        rooms = [dict(r) for r in c.execute("SELECT slug,name FROM voice_channels WHERE slug NOT LIKE 'group-%' ORDER BY sort_order,slug")]
     return [{**room, 'members': voice_members(room['slug'])} for room in rooms]
 
 
 @app.post('/api/voice/channels', status_code=201)
 def create_voice_channel(data: VoiceChannelCreate, request: Request):
-    require_owner(request)
+    u=require_user(request)
+    if not v8_allowed(u,'manage_channels'):raise HTTPException(403,'Cannot manage voice rooms.')
     name = data.name.strip()
     slug = re.sub(r'[^a-z0-9-]', '-', name.lower()).strip('-')
     slug = re.sub(r'-+', '-', slug)
@@ -934,7 +984,8 @@ def create_voice_channel(data: VoiceChannelCreate, request: Request):
 
 @app.delete('/api/voice/channels/{slug}')
 async def delete_voice_channel(slug: str, request: Request):
-    require_owner(request)
+    u=require_user(request)
+    if not v8_allowed(u,'manage_channels'):raise HTTPException(403,'Cannot manage voice rooms.')
     if slug == 'lounge':
         raise HTTPException(403, 'The Lounge room cannot be deleted.')
     voice_room_exists(slug)
@@ -985,7 +1036,7 @@ async def voice_socket(ws: WebSocket):
         return
     with db() as c:
         valid = c.execute('SELECT 1 FROM voice_channels WHERE slug=?', (slug,)).fetchone()
-    if not valid:
+    if not valid or not v8_can_voice(user,slug):
         await ws.close(code=1008)
         return
     if len([1 for room, _ in voice_connections.values() if room==slug]) >= VOICE_CAPACITY:
@@ -1082,6 +1133,11 @@ async def send_channel(slug: str, data: NewMessage, request: Request):
     if not body:
         raise HTTPException(400, 'Message cannot be empty.')
     with db() as c:
+        channel=c.execute('SELECT slowmode_seconds FROM channels WHERE slug=?',(slug,)).fetchone()
+        if channel and channel['slowmode_seconds']>0 and not v8_allowed(u,'moderate'):
+            last=c.execute('SELECT created_at FROM messages WHERE sender_id=? AND channel_slug=? ORDER BY id DESC LIMIT 1',(u['id'],slug)).fetchone()
+            if last and (time.time()-datetime.fromisoformat(last['created_at'].replace('Z','+00:00')).timestamp())<channel['slowmode_seconds']:
+                raise HTTPException(429, 'Channel slowmode is enabled. Please wait.')
         validate_reply(c, data.reply_to_id, u['id'], slug, None)
     check_spam(u,'message',body)
     with db() as c:
@@ -1132,10 +1188,19 @@ async def websocket(ws: WebSocket):
         return
     channel = ws.query_params.get('channel')
     other = ws.query_params.get('dm')
-    if bool(channel) == bool(other):
+    group = ws.query_params.get('group')
+    if sum(bool(x) for x in (channel,other,group)) != 1:
         await ws.close(code=1008)
         return
-    if channel:
+    if group:
+        try:
+            group_id=int(group)
+            with db() as c:v8_valid_group(c,user,group_id)
+        except (ValueError,HTTPException):
+            await ws.close(code=1008)
+            return
+        key='group:'+str(group_id)
+    elif channel:
         with db() as c:
             if not c.execute('SELECT 1 FROM channels WHERE slug=?', (channel,)).fetchone():
                 await ws.close(code=1008)
@@ -1162,3 +1227,6 @@ async def websocket(ws: WebSocket):
     finally:
         connections.pop(ws, None)
         await presence()
+
+# Register v8 extensions after original routes and websocket handlers.
+v8.install(globals())

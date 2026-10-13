@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0c0d14" />
 <title>Mr H Media — your corner of the internet.</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-<link rel="stylesheet" href="/static/styles.css?v=7" />
+<link rel="stylesheet" href="/static/styles.css?v=8" />
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" class="svg-sprite" aria-hidden="true">
@@ -80,7 +80,7 @@
     <div class="rail-divider"></div>
     <button class="rail-server active" id="rail-home" aria-label="Community channels" title="Mr H Media"><svg><use href="#i-message" /></svg></button>
     <button class="rail-server" id="rail-posts" aria-label="Community posts" title="Posts"><svg><use href="#i-image" /></svg></button>
-    <button class="rail-server rail-dm" id="rail-dms" aria-label="Direct messages" title="Direct messages"><svg><use href="#i-users" /></svg></button>
+    <button class="rail-server" id="rail-friends" aria-label="Friends and groups" title="Friends and groups"><svg><use href="#i-users" /></svg></button><button class="rail-server rail-dm" id="rail-dms" aria-label="Direct messages" title="Direct messages"><svg><use href="#i-users" /></svg></button>
     <div class="rail-bottom"><button class="rail-server" id="rail-settings" aria-label="Settings" title="User settings"><svg><use href="#i-settings" /></svg></button></div>
   </nav>
   <aside class="sidebar" id="sidebar">
@@ -93,6 +93,9 @@
       <div id="channel-list" class="channel-list"></div>
       <div class="section-header voice-title"><span>VOICE CHANNELS</span><button type="button" id="new-voice" class="icon-button small" title="Create voice room" hidden><svg><use href="#i-plus" /></svg></button></div>
       <div id="voice-list" class="channel-list" aria-label="Voice rooms"></div>
+      <button type="button" id="sidebar-friends" class="channel-item feed-nav">👥 <span>Friends & groups</span></button>
+      <div class="section-header"><span>GROUP CHATS</span><button type="button" id="create-group" class="icon-button small" title="New group chat">+</button></div>
+      <div id="group-list" class="channel-list"></div>
       <div class="section-header dm-title"><span>DIRECT MESSAGES</span><button type="button" id="new-dm" class="icon-button small" title="Find someone to message"><svg><use href="#i-plus" /></svg></button></div>
       <div id="dm-list" class="channel-list dm-list"><div class="dm-empty">no conversations yet</div></div>
     </div>
@@ -127,7 +130,7 @@
 
 <div id="modal-backdrop" class="modal-backdrop" hidden><section id="modal-content" class="modal-content" role="dialog" aria-modal="true" aria-label="Dialog"></section></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-<script src="/static/app.js?v=7" defer></script>
+<script src="/static/app.js?v=8" defer></script><script src="/static/v8.js?v=8" defer></script>
 <div id="voice-audio" hidden></div>
 </body>
 </html>

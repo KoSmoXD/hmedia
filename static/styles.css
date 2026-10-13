@@ -240,3 +240,40 @@ html[data-custom-theme="1"] .message-text,html[data-custom-theme="1"] .post-card
 .voice-roster-user>svg{width:13px;height:13px;color:#9699ad;flex-shrink:0}
 .app-screen.voice-focused .members-pane .members-head,.app-screen.voice-focused .members-pane .members-scroll{display:none}
 .app-screen.voice-focused .members-pane .voice-roster-pane{display:flex}
+
+/* Mr H Media v8 social and moderation views */
+.v8-modal{max-width:620px;max-height:min(82vh,850px);overflow-y:auto}
+.v8-modal h3{margin:22px 0 10px;font-size:14px;color:var(--theme-text,#e8e9f2)}
+.v8-modal p{color:#bfc0cb;font-size:13px}
+.v8-tools,.v8-user-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.v8-tools button,.v8-user-actions button,.v8-row button,.v8-top-action{border:1px solid #53556c;background:#323446;border-radius:8px;color:#f2f2fc;padding:8px 11px;font:inherit;font-size:12px;cursor:pointer}
+.v8-tools button:hover,.v8-user-actions button:hover,.v8-row button:hover{background:#4b446d}
+.v8-scroll{max-height:290px;overflow-y:auto;padding:5px 2px;scrollbar-width:thin}
+.v8-row{display:flex;gap:9px;align-items:center;min-height:48px;padding:7px;border-bottom:1px solid #343544}
+.v8-row>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.v8-row .avatar{width:34px;height:34px;flex-shrink:0}
+.v8-choose{max-height:200px;overflow-y:auto;border:1px solid #454454;border-radius:12px;padding:6px}
+.v8-choose label{display:flex;gap:7px;align-items:center;padding:5px;font-size:13px}
+.v8-choose .avatar{width:26px;height:26px}
+.v8-choose input,.v8-switch input{width:auto!important;accent-color:#9c8cff}
+.v8-switch{display:flex;align-items:center;gap:12px;padding:9px}
+.v8-reactions{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.v8-reaction{border:1px solid #626077;background:#343146;color:#edeaff;border-radius:14px;padding:3px 9px;cursor:pointer;min-height:27px;font-size:13px}
+.v8-emoji-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;max-width:400px}
+.v8-emoji-grid button{border:1px solid #4a4762;background:#302d40;border-radius:12px;min-height:50px;font-size:24px;cursor:pointer;color:white}
+.v8-role,.v8-audit,.v8-thread-row{border-bottom:1px solid #42404f;padding:10px 4px;font-size:13px}
+.v8-role small,.v8-audit small{display:block;color:#aaaabc;margin-top:5px;font-size:11px}
+.v8-thread-row strong{color:#c0b1ff}.v8-thread-row p{margin:7px 0}
+.v8-pin-row{width:100%;display:block;text-align:left;padding:10px;border:1px solid #3c3c50;border-radius:8px;background:#262637;color:#f3f2ff;margin:5px 0;cursor:pointer}
+.v8-pin-row strong{display:block;color:#ab9bff;margin-bottom:4px}
+.v8-top-action{margin-right:12px;background:#6756aa}
+.channel-item.v8-unread{font-weight:800;color:#fff}
+.channel-item.v8-unread::after{content:'●';color:#b19dff;font-size:9px;margin-left:auto}
+#group-list .channel-item{font-size:12px}
+#group-list{margin-bottom:8px}
+.v8-custom{display:flex;flex-wrap:wrap;border-top:1px solid #424256;margin-top:5px;padding-top:9px}
+.v8-custom small{width:100%;color:#aea5c7;font-size:10px}
+.v8-custom button{display:inline-flex;align-items:center;justify-content:center;width:35px;height:35px}
+.v8-custom img{width:25px;height:25px;object-fit:contain}
+.v8-user-status{color:#b5aaff!important;font-style:italic}
+@media(max-width:630px){.v8-modal{width:100%;max-height:80vh}.v8-row{flex-wrap:wrap}.v8-tools button{flex:1}.v8-top-action{padding:6px;font-size:11px}}

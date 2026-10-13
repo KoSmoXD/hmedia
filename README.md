@@ -113,3 +113,24 @@ python tests/browser_voice_v7_mock.py
 ```
 
 This Playwright preview checks the layout and UI behavior using simulated WebSocket/media inputs. It is not a substitute for testing audio/video across real devices and networks.
+
+## Mr H Media v8: social features
+
+This upgrade is **additive**. `app.py` installs `v8.py` on startup, upgrading the existing SQLite database in `/data` without dropping accounts or historical messages. Keep the existing single Railway replica and `/data` volume.
+
+- **Roles:** Owner, Admin, Moderator, VIP and Member defaults; owner/admin can create roles with custom names, colors and explicit permissions; authorized users can assign them from a member's profile. The Owner role cannot be granted through the API. Permissions include `manage_channels`, `moderate`, `ban_users`, `manage_emoji`, `manage_roles`, and `manage_posts`.
+- **Friends:** requests, approval, removal and blocking; blocking also prevents new one-to-one messages. New group chats can include up to eight participants and allow members to exchange messages and files. Group voice rooms are private to group members. Existing public voice rooms and screen sharing remain available.
+- **Reactions and GIFs:** react to messages with emoji, upload custom emoji as an authorized moderator, and share GIFs in chat using the attachment button. GIF uploads retain their animation; searchable external GIF catalogs are not bundled.
+- **Notifications:** unread markers for channels, DMs and groups, mention/friend/group alerts, account notification preferences and opt-in desktop notifications while the website is open. This is **not** offline mobile push notification support.
+- **Profiles:** custom banners, status text, role badges, profile colors and animated GIF avatars. Roles appear as colored name badges.
+- **Moderation:** owner/admin bans, role-scoped timeouts, public message removal, channel slowmode, audit log, and signup anti-raid limiting. Moderators cannot inspect or delete someone else's private DMs.
+- **Threads & pins:** select a message's **Thread** button to view its nested replies, use **Reply** to continue the conversation, pin/unpin public messages with moderation permission and search public channel history.
+
+### Verification
+
+```bash
+python -m pytest -q
+python tests/browser_v8_mock.py
+```
+
+The Playwright UI smoke test uses mocked browser networking. Real WebRTC connections across devices still need separate testing; configure `WEBRTC_ICE_SERVERS` with working TURN credentials if public calls must connect reliably across restrictive networks.
