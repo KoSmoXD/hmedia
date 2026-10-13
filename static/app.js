@@ -264,3 +264,171 @@ function chooseMention(idx){if(!mentionMatch)return;const u=mentionMatch.list[id
 $('message-input').addEventListener('input',updateMentionMenu);
 $('message-input').addEventListener('keydown',e=>{if(mentionMenu.hidden||!mentionMatch)return;if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();mentionSelected=(mentionSelected+(e.key==='ArrowDown'?1:-1)+mentionMatch.list.length)%mentionMatch.list.length;mentionMenu.querySelectorAll('[data-mention]').forEach((el,i)=>el.classList.toggle('selected',i===mentionSelected))}else if(e.key==='Tab'||e.key==='Enter'){e.preventDefault();e.stopImmediatePropagation();chooseMention(mentionSelected)}else if(e.key==='Escape'){e.preventDefault();mentionMenu.hidden=true}},{capture:true});
 mentionMenu.addEventListener('click',e=>{const b=e.target.closest('[data-mention]');if(b)chooseMention(Number(b.dataset.mention))});
+
+
+// Voice rooms: WebRTC sends audio/screen media end-to-end between participants.
+// The server relays only membership and SDP/ICE negotiation metadata.
+const voice={ws:null,room:null,rooms:[],people:new Map(),peers:new Map(),mic:null,screen:null,
+  muted:true,sharing:false,stageOpen:false,iceServers:[],epoch:0};
+function voiceSignal(type,to,data){if(voice.ws?.readyState===WebSocket.OPEN)voice.ws.send(JSON.stringify({type,to,data}))}
+function voiceStatus(){if(voice.ws?.readyState===WebSocket.OPEN)voice.ws.send(JSON.stringify({type:'voice-status',muted:voice.muted,sharing:voice.sharing}))}
+async function refreshVoiceRooms(){if(!state.me)return;try{const rooms=await api('/api/voice/channels');voice.rooms=rooms;renderVoiceRooms()}catch(e){console.warn('Voice rooms unavailable:',e)}}
+function renderVoiceRooms(){const root=$('voice-list');if(!root)return;
+  root.innerHTML=voice.rooms.map(r=>`<div class="voice-channel"><button type="button" class="channel-item ${voice.room===r.slug?'active':''}" data-join-voice="${escapeHtml(r.slug)}" title="Join ${escapeHtml(r.name)}">${icon('users')}<span>${escapeHtml(r.name)}</span><span class="voice-count">${voice.room===r.slug&&voice.ws?voice.people.size:(r.members?.length||0)}/8</span></button>${state.me?.role==='owner'&&r.slug!=='lounge'?`<button class="delete-channel" data-delete-voice="${escapeHtml(r.slug)}" title="Delete voice room">×</button>`:''}</div>`).join('');
+  $('new-voice').hidden=state.me?.role!=='owner';
+}
+$('voice-list').addEventListener('click',async(e)=>{
+  const del=e.target.closest('[data-delete-voice]');
+  if(del){const slug=del.dataset.deleteVoice;if(!confirm('Delete this voice room?'))return;try{await api('/api/voice/channels/'+encodeURIComponent(slug),{method:'DELETE'});if(voice.room===slug)leaveVoice();await refreshVoiceRooms()}catch(err){showToast(err.message)}return}
+  const join=e.target.closest('[data-join-voice]');if(join)joinVoice(join.dataset.joinVoice);
+});
+$('new-voice').addEventListener('click',async()=>{const name=prompt('New voice room name:');if(!name?.trim())return;try{await api('/api/voice/channels',{method:'POST',body:JSON.stringify({name:name.trim()})});await refreshVoiceRooms()}catch(e){showToast(e.message)}});
+
+function voiceUser(id){return voice.people.get(Number(id))||state.members.find(u=>u.id===Number(id))||{id,username:'user'+id,display_name:'user '+id}}
+function updateVoiceUI(){
+  const connected=!!voice.ws;
+  $('voice-dock').hidden=!connected;
+  $('voice-stage').hidden=!(connected&&voice.stageOpen);
+  if(!connected){renderVoiceRooms();return}
+  const channel=voice.rooms.find(c=>c.slug===voice.room);
+  $('voice-dock-room').textContent=channel?.name||voice.room;
+  $('voice-stage-title').textContent='Voice • '+(channel?.name||voice.room);
+  $('voice-dock-count').textContent=voice.people.size+' online';
+  $('voice-stage-status').textContent=voice.sharing?'You are sharing your screen':'Private live voice room';
+  $('voice-mute').textContent=voice.muted?'Unmute':'Mute';
+  $('voice-mute').classList.toggle('active',voice.muted);
+  $('voice-share').textContent=voice.sharing?'Stop sharing':'Share screen';
+  $('voice-share').classList.toggle('active',voice.sharing);
+  $('voice-show').textContent=voice.stageOpen?'Hide call':'Call view';
+  $('voice-show').classList.toggle('active',voice.stageOpen);
+  $('voice-stage-people').innerHTML=[...voice.people.values()].map(u=>`<span class="voice-person ${u.muted?'muted':''}">${avatar(u)}${escapeHtml(u.display_name||u.username)}${u.id===state.me.id?' (you)':''}<span class="voice-muted-icon">${u.muted?'🔇':''}</span><span class="voice-share-icon">${u.sharing?'● LIVE':''}</span></span>`).join('');
+  renderVoiceStreams();renderVoiceRooms();
+}
+function renderVoiceStreams(){const root=$('voice-stream-grid');root.replaceChildren();if(!voice.stageOpen)return;
+  const live=[...voice.people.values()].filter(u=>u.sharing);
+  if(!live.length){const msg=document.createElement('div');msg.className='voice-empty';msg.textContent='No one is sharing yet. Select Share screen to stream your window, tab, or display to everyone in this voice room.';root.append(msg);return}
+  for(const u of live){const isSelf=u.id===state.me.id;
+    const track=isSelf?voice.screen:voice.peers.get(u.id)?.videoTrack;
+    const tile=document.createElement('div');tile.className='voice-stream';
+    const video=document.createElement('video');video.autoplay=true;video.playsInline=true;video.muted=true;
+    if(track){video.srcObject=new MediaStream([track]);video.play().catch(()=>{})}
+    const label=document.createElement('label');label.textContent=(u.display_name||u.username)+(isSelf?' • your screen':' • streaming');
+    tile.append(video,label);root.append(tile);
+  }
+}
+function closeVoicePeer(id){const p=voice.peers.get(Number(id));if(!p)return;
+  voice.peers.delete(Number(id));try{p.pc.ontrack=null;p.pc.onicecandidate=null;p.pc.close()}catch{}
+  p.audioEl?.remove();
+}
+function cleanupVoiceMedia(){if(voice.screen){const t=voice.screen;voice.screen=null;t.onended=null;t.stop()}
+  if(voice.mic){for(const t of voice.mic.getTracks())t.stop();voice.mic=null}
+  for(const id of [...voice.peers.keys()])closeVoicePeer(id);
+}
+function leaveVoice(){voice.epoch++;const ws=voice.ws;voice.ws=null;voice.room=null;voice.people.clear();voice.muted=true;voice.sharing=false;voice.stageOpen=false;
+  if(ws){ws.onclose=null;ws.close()}
+  cleanupVoiceMedia();updateVoiceUI();refreshVoiceRooms();
+}
+async function joinVoice(room){
+  if(voice.room===room&&voice.ws){voice.stageOpen=true;updateVoiceUI();return}
+  leaveVoice();const epoch=voice.epoch;voice.room=room;voice.stageOpen=true;voice.muted=true;
+  if(!navigator.mediaDevices||!window.RTCPeerConnection){showToast('Voice calls need HTTPS and a browser with WebRTC.');leaveVoice();return}
+  try{voice.iceServers=(await api('/api/voice/ice-config')).iceServers||[]}
+  catch{voice.iceServers=[{urls:'stun:stun.l.google.com:19302'}]}
+  if(voice.epoch!==epoch||voice.room!==room)return;
+  try{voice.mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});voice.muted=false}
+  catch(e){voice.mic=null;voice.muted=true;showToast('Microphone unavailable. Joined in listen-only mode.');}
+  if(voice.epoch!==epoch||voice.room!==room){cleanupVoiceMedia();return}
+  const proto=location.protocol==='https:'?'wss':'ws';const ws=new WebSocket(`${proto}://${location.host}/ws/voice?room=${encodeURIComponent(room)}`);
+  voice.ws=ws;updateVoiceUI();
+  ws.onopen=()=>{if(voice.ws!==ws)return;voiceStatus()};
+  ws.onmessage=async(event)=>{if(voice.ws!==ws)return;let data;try{data=JSON.parse(event.data)}catch{return}
+    try{await handleVoicePacket(data)}catch(err){console.warn('Voice signaling:',err)}};
+  ws.onclose=(event)=>{if(voice.ws!==ws)return;const reason=event.reason||'Connection closed';leaveVoice();showToast('Voice disconnected: '+reason)};
+  ws.onerror=()=>{if(voice.ws===ws)showToast('Could not connect to the voice room.')};
+}
+async function createVoicePeer(id){id=Number(id);const old=voice.peers.get(id);if(old)return old;
+  const pc=new RTCPeerConnection({iceServers:voice.iceServers});
+  const a=pc.addTransceiver('audio',{direction:'sendrecv'});
+  const v=pc.addTransceiver('video',{direction:'sendrecv'});
+  const obj={pc,audioSender:a.sender,videoSender:v.sender,audioTrack:null,videoTrack:null,pending:[],remoteReady:false,audioEl:null};
+  voice.peers.set(id,obj);
+  pc.onicecandidate=e=>{if(e.candidate)voiceSignal('ice',id,e.candidate.toJSON())};
+  pc.ontrack=e=>{
+    if(e.track.kind==='audio'){
+      obj.audioTrack=e.track;
+      if(!obj.audioEl){obj.audioEl=document.createElement('audio');obj.audioEl.autoplay=true;obj.audioEl.style.display='none';$('voice-audio').appendChild(obj.audioEl)}
+      obj.audioEl.srcObject=new MediaStream([e.track]);obj.audioEl.play().catch(()=>{});
+    }else{obj.videoTrack=e.track;e.track.onunmute=()=>{if(voice.people.get(id)?.sharing)renderVoiceStreams()};renderVoiceStreams()}
+  };
+  pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'){showToast('Peer connection failed. A TURN server may be needed.')}};
+  try{await obj.audioSender.replaceTrack(voice.mic?.getAudioTracks()[0]||null);await obj.videoSender.replaceTrack(voice.screen||null)}catch(err){console.warn('Track setup:',err)}
+  return obj;
+}
+async function flushVoiceIce(p){for(const item of p.pending.splice(0)){try{await p.pc.addIceCandidate(item)}catch(err){console.warn('ICE candidate:',err)}}}
+async function offerVoicePeer(id){if(!voice.ws||id===state.me.id)return;
+  const obj=await createVoicePeer(id);if(!voice.ws)return;
+  const desc=await obj.pc.createOffer();await obj.pc.setLocalDescription(desc);
+  voiceSignal('offer',id,{type:'offer',sdp:obj.pc.localDescription.sdp});
+}
+async function handleVoicePacket(data){
+  if(data.type==='voice-roster'){
+    voice.people=new Map(data.members.map(u=>[u.id,u]));updateVoiceUI();
+    // Only the newcomer makes offers. Existing members only answer, avoiding glare.
+    for(const u of data.members){if(u.id!==state.me.id)await offerVoicePeer(u.id)}
+  }else if(data.type==='voice-joined'){
+    voice.people.set(data.user.id,data.user);updateVoiceUI();
+  }else if(data.type==='voice-left'){
+    voice.people.delete(data.user_id);closeVoicePeer(data.user_id);updateVoiceUI();
+  }else if(data.type==='voice-status'){
+    const user=voice.people.get(data.user_id);if(user){user.muted=data.muted;user.sharing=data.sharing;updateVoiceUI()}
+  }else if(data.type==='voice-signal'){
+    const id=data.from;const p=await createVoicePeer(id);const pc=p.pc;
+    if(data.signal==='offer'){
+      await pc.setRemoteDescription(new RTCSessionDescription(data.data));p.remoteReady=true;await flushVoiceIce(p);
+      const answer=await pc.createAnswer();await pc.setLocalDescription(answer);
+      voiceSignal('answer',id,{type:'answer',sdp:pc.localDescription.sdp});
+    }else if(data.signal==='answer'){
+      if(pc.signalingState!=='have-local-offer')return;
+      await pc.setRemoteDescription(new RTCSessionDescription(data.data));p.remoteReady=true;await flushVoiceIce(p);
+    }else if(data.signal==='ice'){
+      if(!p.remoteReady)p.pending.push(data.data);
+      else await pc.addIceCandidate(data.data).catch(()=>{});
+    }
+  }
+}
+$('voice-mute').addEventListener('click',async()=>{
+  if(!voice.ws)return;
+  if(!voice.mic){try{voice.mic=await navigator.mediaDevices.getUserMedia({audio:true});
+    for(const p of voice.peers.values())await p.audioSender.replaceTrack(voice.mic.getAudioTracks()[0]);
+  }catch(e){showToast('Microphone permission denied.');return}}
+  voice.muted=!voice.muted;for(const track of voice.mic.getAudioTracks())track.enabled=!voice.muted;
+  const me=voice.people.get(state.me.id);if(me)me.muted=voice.muted;voiceStatus();updateVoiceUI();
+});
+async function stopVoiceShare(){if(!voice.sharing)return;
+  const track=voice.screen;voice.screen=null;voice.sharing=false;
+  if(track){track.onended=null;track.stop()}
+  await Promise.all([...voice.peers.values()].map(p=>p.videoSender.replaceTrack(null).catch(()=>{})));
+  const me=voice.people.get(state.me.id);if(me)me.sharing=false;voiceStatus();updateVoiceUI();
+}
+$('voice-share').addEventListener('click',async()=>{
+  if(!voice.ws)return;
+  if(voice.sharing){await stopVoiceShare();return}
+  if(!navigator.mediaDevices.getDisplayMedia){showToast('Screen sharing is not supported by this browser.');return}
+  try{const stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:15},audio:false});
+    const track=stream.getVideoTracks()[0];if(!voice.ws){track.stop();return}
+    voice.screen=track;voice.sharing=true;track.onended=()=>stopVoiceShare();
+    await Promise.all([...voice.peers.values()].map(p=>p.videoSender.replaceTrack(track)));
+    const me=voice.people.get(state.me.id);if(me)me.sharing=true;
+    voice.stageOpen=true;voiceStatus();updateVoiceUI();
+  }catch(err){if(err.name!=='NotAllowedError')showToast('Screen sharing failed: '+err.message)}
+});
+$('voice-leave').addEventListener('click',leaveVoice);
+$('voice-show').addEventListener('click',()=>{voice.stageOpen=!voice.stageOpen;updateVoiceUI()});
+$('voice-stage-close').addEventListener('click',()=>{voice.stageOpen=false;updateVoiceUI()});
+window.addEventListener('beforeunload',()=>{cleanupVoiceMedia();voice.ws?.close()});
+// Voice is independent of the text-chat websocket and stays connected across channels.
+const originalEnterApp=enterApp;
+enterApp=async function(){await originalEnterApp();await refreshVoiceRooms()};
+const originalLogoutLocal=logoutLocal;
+logoutLocal=function(){leaveVoice();originalLogoutLocal()};
+setInterval(()=>{if(state.me)refreshVoiceRooms()},20000);

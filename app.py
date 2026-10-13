@@ -143,6 +143,15 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_posts_newest ON posts(id DESC);
         ''')
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS voice_channels (
+          slug TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0
+        );
+        """)
+        c.execute('INSERT OR IGNORE INTO voice_channels(slug,name,sort_order) VALUES (?,?,?)', ('lounge','Lounge',0))
+        c.execute('INSERT OR IGNORE INTO voice_channels(slug,name,sort_order) VALUES (?,?,?)', ('gaming','Gaming',1))
         for i, (slug, name, topic) in enumerate([
             ('general', 'general', 'the place for everything. say hello.'),
             ('introductions', 'introductions', 'new here? introduce yourself.'),
@@ -599,6 +608,12 @@ async def ban_user(user_id: int, data: BanRequest, request: Request):
             connections.pop(ws, None)
             await ws.close(code=1008, reason='Account banned')
     await presence()
+    for voice_ws, (_, uid) in list(voice_connections.items()):
+        if uid == user_id:
+            try:
+                await voice_ws.close(code=1008, reason='Account banned')
+            except RuntimeError:
+                pass
     return {'ok': True}
 
 @app.post('/api/admin/users/{user_id}/unban')
@@ -867,6 +882,173 @@ def delete_post(post_id: int, request: Request):
     for name in files:
         (ATTACHMENTS_DIR/name).unlink(missing_ok=True)
     return {'ok':True}
+
+# Voice rooms are signaling-only: audio/screen pixels move peer-to-peer via WebRTC.
+# One Railway instance is required because room membership is in process memory.
+voice_connections: dict[WebSocket, tuple[str,int]] = {}
+voice_status: dict[WebSocket, dict] = {}
+VOICE_CAPACITY = 8   # Mesh calls: each participant sends media to every other participant.
+
+class VoiceChannelCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=28)
+
+
+def voice_room_exists(slug: str):
+    with db() as c:
+        if not c.execute('SELECT 1 FROM voice_channels WHERE slug=?', (slug,)).fetchone():
+            raise HTTPException(404, 'Voice room not found.')
+
+
+def voice_members(slug: str):
+    ids = list(dict.fromkeys(uid for room, uid in voice_connections.values() if room == slug))
+    if not ids:
+        return []
+    with db() as c:
+        rows = c.execute('SELECT * FROM users WHERE id IN (' + ','.join('?' for _ in ids) + ')', ids).fetchall()
+    return [{**user_dict(row), 'muted': next((voice_status.get(w, {}).get('muted', True) for w, (r, u) in voice_connections.items() if r==slug and u==row['id']), True),
+             'sharing': next((voice_status.get(w, {}).get('sharing', False) for w, (r, u) in voice_connections.items() if r==slug and u==row['id']), False)} for row in rows]
+
+
+@app.get('/api/voice/channels')
+def get_voice_channels(request: Request):
+    require_user(request)
+    with db() as c:
+        rooms = [dict(r) for r in c.execute('SELECT slug,name FROM voice_channels ORDER BY sort_order,slug')]
+    return [{**room, 'members': voice_members(room['slug'])} for room in rooms]
+
+
+@app.post('/api/voice/channels', status_code=201)
+def create_voice_channel(data: VoiceChannelCreate, request: Request):
+    require_owner(request)
+    name = data.name.strip()
+    slug = re.sub(r'[^a-z0-9-]', '-', name.lower()).strip('-')
+    slug = re.sub(r'-+', '-', slug)
+    if not CHANNEL_RE.fullmatch(slug):
+        raise HTTPException(400, 'Use 2–28 letters, numbers or hyphens for the room name.')
+    with db() as c:
+        if c.execute('SELECT 1 FROM voice_channels WHERE slug=?', (slug,)).fetchone():
+            raise HTTPException(409, 'A voice room with this name already exists.')
+        c.execute('INSERT INTO voice_channels(slug,name,sort_order) VALUES (?,?,(SELECT COUNT(*) FROM voice_channels))', (slug,name))
+    return {'slug':slug,'name':name,'members':[]}
+
+
+@app.delete('/api/voice/channels/{slug}')
+async def delete_voice_channel(slug: str, request: Request):
+    require_owner(request)
+    if slug == 'lounge':
+        raise HTTPException(403, 'The Lounge room cannot be deleted.')
+    voice_room_exists(slug)
+    with db() as c:
+        c.execute('DELETE FROM voice_channels WHERE slug=?', (slug,))
+    for ws, (room, _) in list(voice_connections.items()):
+        if room == slug:
+            try:
+                await ws.close(code=1008, reason='Voice room deleted')
+            except RuntimeError:
+                pass
+    return {'ok':True}
+
+
+@app.get('/api/voice/ice-config')
+def ice_config(request: Request):
+    require_user(request)
+    # Optional TURN support: supply a JSON array via Railway WEBRTC_ICE_SERVERS.
+    default = [{'urls':['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]
+    try:
+        configured = json.loads(os.environ.get('WEBRTC_ICE_SERVERS', 'null'))
+    except json.JSONDecodeError:
+        configured = None
+    if not isinstance(configured, list) or len(configured)>8 or any(not isinstance(i,dict) or not isinstance(i.get('urls'),(str,list)) for i in configured):
+        configured = default
+    return {'iceServers':configured}
+
+
+async def voice_emit(slug: str, data: dict, exclude: WebSocket | None = None):
+    for ws, (room, _) in list(voice_connections.items()):
+        if room == slug and ws is not exclude:
+            try:
+                await ws.send_json(data)
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+
+
+@app.websocket('/ws/voice')
+async def voice_socket(ws: WebSocket):
+    origin = ws.headers.get('origin')
+    if origin and urlparse(origin).netloc.lower() != ws.headers.get('host','').lower():
+        await ws.close(code=1008)
+        return
+    user = auth_user(ws.cookies.get('mrh_session'))
+    slug = ws.query_params.get('room','')
+    if not user or not CHANNEL_RE.fullmatch(slug):
+        await ws.close(code=1008)
+        return
+    with db() as c:
+        valid = c.execute('SELECT 1 FROM voice_channels WHERE slug=?', (slug,)).fetchone()
+    if not valid:
+        await ws.close(code=1008)
+        return
+    if len([1 for room, _ in voice_connections.values() if room==slug]) >= VOICE_CAPACITY:
+        await ws.close(code=1008,reason='Voice room full')
+        return
+    # One voice room per logged-in user, even across multiple tabs.
+    for older_ws, (_, uid) in list(voice_connections.items()):
+        if uid == user['id']:
+            try:
+                await older_ws.close(code=1008,reason='Joined from another tab')
+            except RuntimeError:
+                pass
+            voice_connections.pop(older_ws,None)
+            voice_status.pop(older_ws,None)
+    await ws.accept()
+    voice_connections[ws] = (slug, user['id'])
+    voice_status[ws] = {'muted':True,'sharing':False}
+    await ws.send_json({'type':'voice-roster','room':slug,'members':voice_members(slug),'self_id':user['id']})
+    await voice_emit(slug, {'type':'voice-joined','user':{**user_dict(user),'muted':True,'sharing':False}}, exclude=ws)
+    signaling_times = deque(maxlen=100)
+    try:
+        while True:
+            packet = await ws.receive_json()
+            if not isinstance(packet,dict) or voice_connections.get(ws)!=(slug,user['id']):
+                break
+            kind = packet.get('type')
+            if kind=='voice-status':
+                # The client cannot set status for other members.
+                st=voice_status[ws]
+                st['muted'] = packet.get('muted') is True
+                st['sharing'] = packet.get('sharing') is True
+                await voice_emit(slug,{'type':'voice-status','user_id':user['id'],**st})
+            elif kind in ('offer','answer','ice'):
+                now = time.monotonic()
+                signaling_times.append(now)
+                if sum(1 for n in signaling_times if n>now-10)>70:
+                    await ws.close(code=1008,reason='Too much signaling')
+                    break
+                target_id = packet.get('to')
+                payload = packet.get('data')
+                if type(target_id) is not int or target_id==user['id'] or not isinstance(payload,dict):
+                    continue
+                if kind in ('offer','answer'):
+                    if payload.get('type')!=kind or not isinstance(payload.get('sdp'),str) or len(payload['sdp'])>24000:
+                        continue
+                    sanitized={'type':kind,'sdp':payload['sdp']}
+                else:
+                    if len(json.dumps(payload))>4500 or 'candidate' not in payload:
+                        continue
+                    sanitized={'candidate':payload.get('candidate'),'sdpMid':payload.get('sdpMid'),
+                               'sdpMLineIndex':payload.get('sdpMLineIndex')}
+                for peer_ws,(peer_room,peer_uid) in list(voice_connections.items()):
+                    if peer_uid==target_id and peer_room==slug:
+                        await peer_ws.send_json({'type':'voice-signal','from':user['id'],'signal':kind,'data':sanitized})
+                        break
+    except (WebSocketDisconnect, RuntimeError, ValueError):
+        pass
+    finally:
+        if voice_connections.get(ws)==(slug,user['id']):
+            voice_connections.pop(ws,None)
+            voice_status.pop(ws,None)
+            await voice_emit(slug,{'type':'voice-left','user_id':user['id']})
+
 
 # Websocket clients are process-local; run with a single worker.
 connections: dict[WebSocket, tuple[str, int]] = {}

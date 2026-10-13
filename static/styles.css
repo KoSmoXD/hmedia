@@ -124,3 +124,35 @@ html[data-custom-theme="1"] .message-text,html[data-custom-theme="1"] .post-card
 @keyframes reply-flash{0%,30%{background:rgba(150,135,255,.2)}100%{background:transparent}}
 @media(hover:none){.reply-action{opacity:1}}
 @media(max-width:630px){.reply-action{opacity:1}.message-reply{max-width:calc(100vw - 140px)}}
+
+/* Real-time voice rooms and WebRTC screen-sharing stage. */
+.voice-title{margin:30px 0 12px}
+.voice-channel{display:flex;align-items:center;gap:3px}
+.voice-channel>.channel-item{flex:1;min-width:0;gap:9px;padding-right:5px}
+.voice-channel .voice-count{margin-left:auto;font-size:10px;color:#b2abc9;background:#292b3c;padding:3px 7px;border-radius:10px;flex-shrink:0}
+.voice-channel .delete-channel{min-width:25px}
+.voice-dock{padding:12px;border-top:1px solid #363447;background:#1d2030;flex-shrink:0}
+.voice-dock-header{display:flex;align-items:center;gap:9px;font-size:12px;color:#abedce;margin-bottom:11px}
+.voice-dock-header strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.voice-dock-header span:last-child{font-size:10px;color:#a2a5b6}
+.voice-live-dot{width:9px;height:9px;background:#50dcb3;border-radius:50%;box-shadow:0 0 9px #50dcb378;flex-shrink:0}
+.voice-dock-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.voice-dock-buttons button{border:1px solid #535269;background:#33344a;color:#f1edff;padding:8px 5px;border-radius:7px;font-size:11px;font-weight:750}
+.voice-dock-buttons button:hover{background:#51496a}
+.voice-dock-buttons button.active{background:#594e8d;border-color:#a796fc}
+.voice-dock-buttons #voice-leave{background:#57313c;border-color:#845060;color:#ffb5c3}
+.voice-stage{flex:0 1 auto;max-height:min(56vh,520px);overflow-y:auto;min-height:0;border-bottom:1px solid #3a394c;background:#161923;padding:12px 20px;position:relative;z-index:1}
+.voice-stage-head{display:flex;gap:10px;align-items:center;min-height:32px;margin-bottom:11px;color:#ece9ff}
+.voice-stage-head strong{font-size:13px}.voice-stage-head span{font-size:11px;color:#9da0b9;flex:1}
+.voice-stage-head button{background:transparent;border:0;color:#d2c8ef;font-size:24px}
+.voice-stage-people{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.voice-person{display:inline-flex;align-items:center;gap:7px;border:1px solid #414157;background:#25283a;border-radius:10px;padding:5px 9px;color:#dedcf3;font-size:11px}
+.voice-person .avatar{width:22px;height:22px;font-size:10px;border-radius:7px}
+.voice-person.muted{opacity:.75}.voice-person .voice-muted-icon{color:#ed94a8}.voice-person .voice-share-icon{color:#9be4c8}
+.voice-stream-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:12px;max-height:360px;overflow-y:auto}
+.voice-stream{min-width:0;border:1px solid #47465b;background:#0a0a10;border-radius:12px;overflow:hidden;position:relative}
+.voice-stream video{display:block;width:100%;aspect-ratio:16/9;max-height:295px;object-fit:contain;background:#0b0d16}
+.voice-stream label{display:block;background:#222434;color:#d7d5f0;font-size:11px;font-weight:750;padding:9px 12px}
+.voice-empty{color:#aaaac0;padding:12px 0;font-size:12px;line-height:1.6}
+.chat-main .chat-scroller{min-height:0}
+@media(max-width:630px){.voice-stage{padding:10px;max-height:40vh}.voice-stream video{max-height:170px}.voice-dock{padding:9px}.voice-dock-buttons button{font-size:10px;padding:9px 4px}}

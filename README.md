@@ -74,7 +74,7 @@ For Railway, deploy this repository with its Dockerfile, set `OWNER_USERNAME`, `
 - The site is not using any third-party auth provider. Passwords are not stored in plaintext.
 - To back up your deployment, back up the mounted data volume (including SQLite WAL/shm files or use SQLite's online backup API).
 - Requires sticky single-process WebSocket messaging; for multi-replica scale, use a message broker such as Redis and move persistent data to PostgreSQL.
-- No email or password-reset-by-email feature: forgotten passwords currently require an administrator recovery workflow. Voice calls and push notifications are not included.
+- No email or password-reset-by-email feature: forgotten passwords currently require an administrator recovery workflow. Browser push notifications are not included.
 - The 500 MB Railway volume also holds files, so file storage is limited; back up the volume regularly. Uploaded files are not virus-scanned, so users should only download files they trust. For a large public community, add malware scanning, user quotas, and S3 object storage.
 - Restrict deployment and protect TLS certificates; see `COOKIE_SECURE` above. Add production observability, abuse controls, and backups before operating a large public community.
 
@@ -86,3 +86,14 @@ pytest -q
 ```
 
 Tests cover signup, owner role, login, failed logins, channels, WebSocket message delivery and typing events, DMs, profile updates, avatar validation, password changes, logout, post publication/deletion, message/post attachments, private-file access rules, file-type/size limits, and owner moderation (ban/unban).
+
+
+## Voice channels and screen streaming
+
+- Join **Lounge**, **Gaming**, or an owner-created voice room from the left sidebar.
+- A microphone permission prompt appears on join. If it is declined, listen-only mode is available. Use **Mute**, **Call view**, and **Leave** in the voice dock. Voice stays connected while switching text channels.
+- **Share screen** opens the browser's trusted display/window/tab picker. Sharing stops immediately when the browser's sharing indicator is stopped, the user clicks **Stop sharing**, or they leave. Remote streams appear in Call view. No recording or file storage of live media is performed.
+- Only the verified owner can create and delete voice rooms; users who are banned lose any active voice connection.
+- A voice room supports up to **8** simultaneous users. Group calls use peer-to-peer WebRTC mesh, so streaming and audio load increase as more users join.
+- `WEBRTC_ICE_SERVERS` (optional): JSON array passed to WebRTC RTCPeerConnection, e.g. `[{"urls":"stun:stun.l.google.com:19302"}]`. Default Google STUN servers are configured automatically. **Reliable cross-network calls require your own TURN relay**, especially behind symmetric NAT / restrictive corporate or mobile networks. Use temporary, restricted TURN credentials. Without TURN, some calls will fail; WebRTC does not guarantee connectivity over STUN alone.
+- Railway deployment must use **one application replica**: room membership and signaling are in memory. If scaling to multiple replicas, replace in-memory membership and signaling with shared infrastructure. Requires HTTPS for microphone and screen capture on a public domain; tab/window/display picker support depends on browser and operating system. Screen sharing captures video only; desktop/system audio is not included.

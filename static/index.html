@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0c0d14" />
 <title>Mr H Media — your corner of the internet.</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-<link rel="stylesheet" href="/static/styles.css" />
+<link rel="stylesheet" href="/static/styles.css?v=6" />
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" class="svg-sprite" aria-hidden="true">
@@ -84,13 +84,24 @@
       <button type="button" id="owner-moderation" class="channel-item feed-nav" hidden><svg><use href="#i-shield" /></svg><span>Moderation</span></button>
       <div class="section-header"><span>TEXT CHANNELS</span><button type="button" id="new-channel" class="icon-button small" title="Create channel" hidden><svg><use href="#i-plus" /></svg></button></div>
       <div id="channel-list" class="channel-list"></div>
+      <div class="section-header voice-title"><span>VOICE CHANNELS</span><button type="button" id="new-voice" class="icon-button small" title="Create voice room" hidden><svg><use href="#i-plus" /></svg></button></div>
+      <div id="voice-list" class="channel-list" aria-label="Voice rooms"></div>
       <div class="section-header dm-title"><span>DIRECT MESSAGES</span><button type="button" id="new-dm" class="icon-button small" title="Find someone to message"><svg><use href="#i-plus" /></svg></button></div>
       <div id="dm-list" class="channel-list dm-list"><div class="dm-empty">no conversations yet</div></div>
     </div>
+    <section class="voice-dock" id="voice-dock" hidden aria-label="Voice call controls">
+      <div class="voice-dock-header"><span class="voice-live-dot"></span><strong id="voice-dock-room">Voice connected</strong><span id="voice-dock-count"></span></div>
+      <div class="voice-dock-buttons"><button id="voice-mute" type="button" title="Mute microphone">Mute</button><button id="voice-share" type="button" title="Share your screen">Share screen</button><button id="voice-show" type="button" title="Show call">Call view</button><button id="voice-leave" type="button" title="Leave call">Leave</button></div>
+    </section>
     <div class="user-dock"><div id="dock-avatar"></div><div class="dock-meta"><strong id="dock-name">username</strong><span id="dock-handle">@username</span></div><button type="button" class="icon-button" id="dock-settings" title="User settings"><svg><use href="#i-settings" /></svg></button></div>
   </aside>
   <main class="chat-main">
     <header class="chat-header"><button class="mobile-menu icon-button" id="mobile-menu" title="Open channels"><svg><use href="#i-menu" /></svg></button><div class="header-icon" id="header-symbol"><svg><use href="#i-hash" /></svg></div><div class="header-title"><strong id="room-name">general</strong><span class="header-sep"></span><span id="room-topic">the place for everything. say hello.</span></div><div class="header-tools"><button class="icon-button notif-button" id="notification-button" title="Mentions and pings" aria-label="Notifications"><svg><use href="#i-bell" /></svg><span id="notification-count" class="notification-count" hidden>0</span></button><button class="icon-button" id="header-members" title="Toggle member list"><svg><use href="#i-users" /></svg></button><button class="icon-button" id="header-search" title="Find people"><svg><use href="#i-search" /></svg></button></div></header>
+    <section class="voice-stage" id="voice-stage" hidden aria-label="Voice room and live streams">
+      <div class="voice-stage-head"><strong id="voice-stage-title">Voice room</strong><span id="voice-stage-status">Connected</span><button id="voice-stage-close" type="button" aria-label="Hide call view">×</button></div>
+      <div class="voice-stage-people" id="voice-stage-people"></div>
+      <div class="voice-stream-grid" id="voice-stream-grid"></div>
+    </section>
     <div class="chat-scroller" id="chat-scroller"><div id="older-holder" class="older-holder"></div><div id="messages"></div></div>
     <div class="typing-indicator" id="typing-indicator"></div>
     <div class="composer-area" id="composer-area"><div class="reply-composer" id="reply-composer" hidden></div><div class="selected-file" id="selected-file" hidden></div><form id="message-form" class="composer"><input type="file" id="chat-file" hidden><button type="button" class="composer-tool attachment-trigger" id="add-attachment" title="Attach a file (up to 8 MB)"><svg><use href="#i-paperclip" /></svg></button><textarea id="message-input" rows="1" maxlength="2000" placeholder="Message #general" aria-label="Your message"></textarea><button type="button" id="emoji-button" class="composer-tool" title="Insert emoji"><svg><use href="#i-smile" /></svg></button><button type="submit" class="composer-send" id="send-button" title="Send message"><svg><use href="#i-send" /></svg></button></form><div id="emoji-popover" class="emoji-popover" hidden></div><div class="compose-note">be kind. be real. <span>enter to send · shift+enter for new line</span></div></div>
@@ -100,6 +111,7 @@
 
 <div id="modal-backdrop" class="modal-backdrop" hidden><section id="modal-content" class="modal-content" role="dialog" aria-modal="true" aria-label="Dialog"></section></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-<script src="/static/app.js" defer></script>
+<script src="/static/app.js?v=6" defer></script>
+<div id="voice-audio" hidden></div>
 </body>
 </html>
