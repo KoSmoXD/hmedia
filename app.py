@@ -757,3 +757,7 @@ async def websocket(ws: WebSocket):
     finally:
         connections.pop(ws, None)
         await presence()
+
+# Extended community features register additional API routes and spam middleware.
+import extras
+extras.install(app)
