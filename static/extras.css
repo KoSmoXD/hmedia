@@ -1,0 +1,48 @@
+/* Mr H Media custom themes, notifications, mentions and post discussion */
+html[data-custom-theme="true"] .app-screen{background:var(--theme-chat);color:var(--theme-text)}
+html[data-custom-theme="true"] .chat-main,html[data-custom-theme="true"] .chat-scroller,
+html[data-custom-theme="true"] .chat-header{background:var(--theme-chat);color:var(--theme-text)}
+html[data-custom-theme="true"] .sidebar{background:var(--theme-sidebar)}
+html[data-custom-theme="true"] .channel-item.active{background:color-mix(in srgb,var(--theme-accent) 22%,transparent);color:var(--theme-text)}
+html[data-custom-theme="true"] .rail-server.active,html[data-custom-theme="true"] .composer-send,
+html[data-custom-theme="true"] .save-btn{background:var(--theme-accent);color:#0e0f15}
+html[data-custom-theme="true"] .heading-spark,html[data-custom-theme="true"] .member-verified,
+html[data-custom-theme="true"] .feed-kicker{color:var(--theme-accent)}
+html[data-custom-theme="true"] .message-text,html[data-custom-theme="true"] .post-card p{color:var(--theme-text)}
+.theme-presets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:20px 0}
+.theme-presets button,.theme-reset{border:1px solid #46445b;color:#e9e6ff;background:#28283a;border-radius:9px;padding:11px;font-weight:700;cursor:pointer}
+.theme-presets button:hover,.theme-reset:hover{border-color:#a79bf3;background:#38334f}
+.theme-form{display:grid;gap:13px}.theme-form>label{display:flex;align-items:center;justify-content:space-between;background:#242532;padding:9px 13px;border-radius:10px;font-weight:700;font-size:13px}
+.theme-form input[type=color]{width:62px;height:38px;background:transparent;border:0;cursor:pointer}
+.theme-actions{display:flex;gap:10px}.theme-actions>button{flex:1}
+.avatar-change-text{color:#c5b8ff;font-size:12px;cursor:pointer;text-decoration:underline;display:block;margin:8px 0}
+#dock-avatar{cursor:pointer}
+.notification-count{position:absolute;top:-3px;right:-6px;background:#ec82a3;color:#12101b;font-weight:900;border-radius:16px;font-size:10px;padding:2px 5px;min-width:17px;text-align:center}
+.notif-button{position:relative}.notif-button.has-notifications{color:#d8c4ff}
+.notification-list{overflow:auto;max-height:440px;display:flex;flex-direction:column;gap:9px;margin-top:14px}
+.notification-item{display:flex;flex-direction:column;gap:7px;border:1px solid #414258;background:#232533;color:#deddef;text-align:left;padding:14px;border-radius:11px;overflow-wrap:anywhere;cursor:pointer}
+.notification-item.unread{border-color:#9c85ff;background:#322e49}.notification-item strong{color:#c4b6ff}
+.notification-item small{color:#9798ab}.notification-item:hover{background:#3b3851}
+.post-actions{border-top:1px solid #39394d;margin-top:18px;padding-top:12px}
+.post-actions button{display:flex;align-items:center;gap:8px;color:#c5baff;border:0;background:transparent;padding:8px 10px;border-radius:7px;font-weight:700;font-size:12px;cursor:pointer}
+.post-actions button:hover{background:#3d3855}
+.post-actions button svg{width:17px;height:17px}
+.comment-area{border-top:1px solid #343449;margin-top:10px;padding:15px 0 0}
+.comments-head{font-size:12px;letter-spacing:.2px;color:#aeb0c6;margin-bottom:16px;font-weight:800}
+.comment-list{max-height:520px;overflow-y:auto}
+.comment-row{display:flex;gap:10px;margin-bottom:14px}.comment-row>.avatar{height:31px;width:31px;border-radius:9px;flex-shrink:0;font-size:12px}
+.comment-content{min-width:0;flex:1}
+.comment-meta{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.comment-meta>button:first-child{background:none;border:0;color:#e8e6ff;padding:0;font-size:12px;font-weight:800;cursor:pointer}
+.comment-meta small{color:#82869d;font-size:10px}
+.comment-row p{margin:5px 0 0;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.comment-delete{background:none;border:0;color:#fdadb7;font-size:11px;margin-left:auto;cursor:pointer}
+.comment-form{display:flex;gap:9px;margin-top:12px}
+.comment-form input{flex:1;min-width:0;background:#12141e;color:#f1f1ff;border:1px solid #44445d;border-radius:9px;padding:11px;font-size:12px}
+.comment-form button{flex:none;padding:10px 12px}
+.mention-menu{position:absolute;left:24px;right:24px;bottom:100%;border:1px solid #53506e;background:#222332;border-radius:12px;box-shadow:0 15px 40px #0008;z-index:8;max-height:280px;overflow-y:auto;padding:8px}
+.mention-caption{color:#a9a6c4;font-weight:800;font-size:10px;letter-spacing:1px;padding:8px}
+.mention-menu button{border:0;border-radius:7px;display:flex;align-items:center;gap:9px;background:transparent;color:#e6e4f7;padding:7px;width:100%;text-align:left;font-size:12px;cursor:pointer}
+.mention-menu button .avatar{height:26px;width:26px;border-radius:8px}
+.mention-menu button:hover,.mention-menu button.selected{background:#423a66}
+@media(max-width:630px){.mention-menu{left:10px;right:10px}.comment-form{flex-wrap:wrap}.comment-form button{width:100%}}
