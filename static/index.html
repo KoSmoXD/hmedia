@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="theme-color" content="#0c0d14" />
+<title>Mr H Media — your corner of the internet.</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" class="svg-sprite" aria-hidden="true">
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M5 9h14M4 15h14M11 3 7 21M17 3l-4 18"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24"><path d="M20 11.5a7.7 7.7 0 0 1-8 7.5c-1.1 0-2.2-.2-3.2-.7L4 20l1.7-4.4A7.7 7.7 0 0 1 4 11.5 7.8 7.8 0 0 1 12 4a7.8 7.8 0 0 1 8 7.5Z"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M10 3h4l.7 2.2 2 1.1 2.3-.5 2 3.4-1.6 1.7v2.2l1.6 1.7-2 3.4-2.3-.5-2 1.1L14 21h-4l-.7-2.2-2-1.1-2.3.5-2-3.4 1.6-1.7v-2.2L3 9.2l2-3.4 2.3.5 2-1.1L10 3Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M2.5 19c.4-3.2 2.5-5 6.5-5s6.1 1.8 6.5 5M16 5.6c2.8.1 4 1.8 4 4s-1.1 3.6-3.7 4M18.2 15.3c2.5.4 3.4 1.5 3.6 3.7"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m21 3-8.5 18-2.8-7.7L2 10.5 21 3ZM9.7 13.3 21 3"/></symbol>
+  <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14c1.2 1.7 2.5 2.5 4 2.5s2.8-.8 4-2.5M8.5 9h.1M15.5 9h.1" stroke-linecap="round" stroke-width="2.5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="m3 17-.4 4.4L7 21l12.5-12.5-4-4L3 17ZM13.8 6.2l4 4M16 4l1.3-1.2a2 2 0 0 1 2.9 0l1 1a2 2 0 0 1 0 2.9l-1.3 1.2"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M13 16l4-4-4-4M9 12h8"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m3 17 5-5 4 4 3-3 6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 2 1.9 7 7.1 3-7.1 2.6L12 22l-2.6-7.4L2 12l7.4-3L12 2Z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.7-6 10-6 10 6 10 6-3.7 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 2 8 3v6c0 5.2-3 8.3-8 11-5-2.7-8-5.8-8-11V5l8-3ZM8 11.8l2.6 2.6L16 9"/></symbol>
+</svg>
+
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-glow auth-glow-a"></div><div class="auth-glow auth-glow-b"></div>
+  <div class="auth-top"><div class="brand-mark">H<span>.</span></div><div class="auth-top-text">MR H <strong>MEDIA</strong><span class="brand-sep"></span> YOUR SPACE, YOUR PEOPLE.</div></div>
+  <div class="auth-shell">
+    <section class="auth-story">
+      <div class="story-pill"><span class="status-dot"></span> THE NEXT GENERATION OF HANGING OUT</div>
+      <h1>find your<br><em>people<span>.</span></em></h1>
+      <p>good conversations start here. meet the community, share your ideas, and make the internet feel a little smaller.</p>
+      <div class="mini-window">
+        <div class="mini-window-header"><span class="mini-hash">#</span> general <span class="mini-live"><i></i> LIVE CHAT</span></div>
+        <div class="mini-msg"><div class="mini-avatar ma-purple">H</div><div><div><strong>Mr_H</strong> <span class="mini-owner">✦ OWNER</span> <small>12:41</small></div><p>welcome to mr h media. make yourself at home ✌️</p></div></div>
+        <div class="mini-msg"><div class="mini-avatar ma-peach">K</div><div><div><strong>kai</strong> <small>12:42</small></div><p>this place looks actually clean</p></div></div>
+        <div class="mini-msg"><div class="mini-avatar ma-teal">A</div><div><div><strong>alex</strong> <small>12:42</small></div><p>who's here? 👀</p></div></div>
+        <div class="mini-compose">Message #general <span>↗</span></div>
+      </div>
+      <div class="story-footer"><span class="story-stars">✳ ✳ ✳</span> ONE COMMUNITY. INFINITE CONVERSATIONS.</div>
+    </section>
+    <section class="auth-card">
+      <div class="auth-card-head"><span class="section-kicker">WELCOME TO THE COMMUNITY</span><h2 id="auth-heading">welcome back<span>.</span></h2><p id="auth-subheading">log in to pick up where you left off.</p></div>
+      <div class="auth-tabs"><button class="auth-tab active" id="tab-login" type="button">Log in</button><button class="auth-tab" id="tab-signup" type="button">Create account</button></div>
+      <form id="auth-form" autocomplete="on">
+        <label for="auth-username">USERNAME</label><div class="field-wrap"><input id="auth-username" name="username" type="text" placeholder="your_username" autocomplete="username" maxlength="24" required /></div>
+        <label for="auth-password">PASSWORD</label><div class="field-wrap password-wrap"><input id="auth-password" name="password" type="password" placeholder="••••••••" autocomplete="current-password" minlength="8" required /><button type="button" id="show-password" aria-label="Show password"><svg><use href="#i-eye" /></svg></button></div>
+        <p class="field-hint" id="signup-hint" hidden>8+ characters. choose something secure.</p>
+        <p id="auth-error" class="form-error" role="alert" hidden></p>
+        <button class="primary-button auth-submit" id="auth-submit" type="submit">Log in <span>→</span></button>
+      </form>
+      <div class="auth-fineprint">BY CONTINUING, YOU AGREE TO BE RESPECTFUL TO OTHERS.</div>
+    </section>
+  </div>
+  <div class="auth-bottom">MR H MEDIA © 2026 <span>BUILT FOR THE COMMUNITY</span></div>
+</div>
+
+<div id="app-screen" class="app-screen" hidden>
+  <nav class="server-rail" aria-label="Servers">
+    <div class="server-home" title="Mr H Media">H<span>.</span></div>
+    <div class="rail-divider"></div>
+    <button class="rail-server active" id="rail-home" aria-label="Community channels" title="Mr H Media"><svg><use href="#i-message" /></svg></button>
+    <button class="rail-server rail-dm" id="rail-dms" aria-label="Direct messages" title="Direct messages"><svg><use href="#i-users" /></svg></button>
+    <div class="rail-bottom"><button class="rail-server" id="rail-settings" aria-label="Settings" title="User settings"><svg><use href="#i-settings" /></svg></button></div>
+  </nav>
+  <aside class="sidebar" id="sidebar">
+    <div class="server-heading"><div><span class="sidebar-tiny">YOUR COMMUNITY</span><strong>Mr H Media <span class="heading-spark">✳</span></strong></div><svg><use href="#i-arrow" /></svg></div>
+    <div class="sidebar-scroll">
+      <div class="sidebar-welcome"><span class="welcome-planet">✧</span><div><strong>your space, your rules.</strong><p>make yourself at home.</p></div></div>
+      <div class="section-header"><span>TEXT CHANNELS</span><button type="button" id="new-channel" class="icon-button small" title="Create channel" hidden><svg><use href="#i-plus" /></svg></button></div>
+      <div id="channel-list" class="channel-list"></div>
+      <div class="section-header dm-title"><span>DIRECT MESSAGES</span><button type="button" id="new-dm" class="icon-button small" title="Find someone to message"><svg><use href="#i-plus" /></svg></button></div>
+      <div id="dm-list" class="channel-list dm-list"><div class="dm-empty">no conversations yet</div></div>
+    </div>
+    <div class="user-dock"><div id="dock-avatar"></div><div class="dock-meta"><strong id="dock-name">username</strong><span id="dock-handle">@username</span></div><button type="button" class="icon-button" id="dock-settings" title="User settings"><svg><use href="#i-settings" /></svg></button></div>
+  </aside>
+  <main class="chat-main">
+    <header class="chat-header"><button class="mobile-menu icon-button" id="mobile-menu" title="Open channels"><svg><use href="#i-menu" /></svg></button><div class="header-icon" id="header-symbol"><svg><use href="#i-hash" /></svg></div><div class="header-title"><strong id="room-name">general</strong><span class="header-sep"></span><span id="room-topic">the place for everything. say hello.</span></div><div class="header-tools"><button class="icon-button" id="header-members" title="Toggle member list"><svg><use href="#i-users" /></svg></button><button class="icon-button" id="header-search" title="Find people"><svg><use href="#i-search" /></svg></button></div></header>
+    <div class="chat-scroller" id="chat-scroller"><div id="older-holder" class="older-holder"></div><div id="messages"></div></div>
+    <div class="typing-indicator" id="typing-indicator"></div>
+    <div class="composer-area"><form id="message-form" class="composer"><textarea id="message-input" rows="1" maxlength="2000" placeholder="Message #general" aria-label="Your message"></textarea><button type="button" id="emoji-button" class="composer-tool" title="Insert emoji"><svg><use href="#i-smile" /></svg></button><button type="submit" class="composer-send" id="send-button" title="Send message"><svg><use href="#i-send" /></svg></button></form><div id="emoji-popover" class="emoji-popover" hidden></div><div class="compose-note">be kind. be real. <span>enter to send · shift+enter for new line</span></div></div>
+  </main>
+  <aside class="members-pane" id="members-pane"><div class="members-head"><span>THE COMMUNITY</span><span id="members-total">0 MEMBERS</span></div><div class="members-scroll"><div class="community-badge"><span>✳</span><div><strong>good to have you here.</strong><p>every great conversation starts with hello.</p></div></div><div class="section-header member-group">ONLINE — <span id="online-count">0</span></div><div id="online-list"></div><div class="section-header member-group">OFFLINE — <span id="offline-count">0</span></div><div id="offline-list"></div></div></aside>
+</div>
+
+<div id="modal-backdrop" class="modal-backdrop" hidden><section id="modal-content" class="modal-content" role="dialog" aria-modal="true" aria-label="Dialog"></section></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script src="/static/app.js" defer></script>
+</body>
+</html>
