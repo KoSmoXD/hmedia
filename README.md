@@ -97,3 +97,19 @@ Tests cover signup, owner role, login, failed logins, channels, WebSocket messag
 - A voice room supports up to **8** simultaneous users. Group calls use peer-to-peer WebRTC mesh, so streaming and audio load increase as more users join.
 - `WEBRTC_ICE_SERVERS` (optional): JSON array passed to WebRTC RTCPeerConnection, e.g. `[{"urls":"stun:stun.l.google.com:19302"}]`. Default Google STUN servers are configured automatically. **Reliable cross-network calls require your own TURN relay**, especially behind symmetric NAT / restrictive corporate or mobile networks. Use temporary, restricted TURN credentials. Without TURN, some calls will fail; WebRTC does not guarantee connectivity over STUN alone.
 - Railway deployment must use **one application replica**: room membership and signaling are in memory. If scaling to multiple replicas, replace in-memory membership and signaling with shared infrastructure. Requires HTTPS for microphone and screen capture on a public domain; tab/window/display picker support depends on browser and operating system. Screen sharing captures video only; desktop/system audio is not included.
+
+## Voice call view and join/leave sounds
+
+- Joining a voice room opens a full-size Discord-style call screen with participant avatar tiles, room name, connected status, and a control toolbar (mute, share screen, disconnect). The screen stays independent of the fixed channel sidebar.
+- Use **Text chat** or **Hide call** to return to text channels without leaving voice. **Call view** returns to the call.
+- Two short, locally synthesized tone cues play when users join/leave the room. No external sound files are downloaded. A **speaker** toggle in the call header disables/enables cues; the preference persists in the browser's local storage.
+- On mobile the call screen adjusts to a narrow viewport with controls reachable at the bottom.
+- Media connectivity still depends on WebRTC and network conditions; a TURN relay is recommended for reliable public calls.
+
+### Frontend preview test
+
+```bash
+python tests/browser_voice_v7_mock.py
+```
+
+This Playwright preview checks the layout and UI behavior using simulated WebSocket/media inputs. It is not a substitute for testing audio/video across real devices and networks.

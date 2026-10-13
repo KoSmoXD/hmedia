@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0c0d14" />
 <title>Mr H Media — your corner of the internet.</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-<link rel="stylesheet" href="/static/styles.css?v=6" />
+<link rel="stylesheet" href="/static/styles.css?v=7" />
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" class="svg-sprite" aria-hidden="true">
@@ -32,6 +32,13 @@
   <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.7-6 10-6 10 6 10 6-3.7 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 2 8 3v6c0 5.2-3 8.3-8 11-5-2.7-8-5.8-8-11V5l8-3ZM8 11.8l2.6 2.6L16 9"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5m-5 0h10"/></symbol>
+  <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="M9 9v3a3 3 0 0 0 5.3 1.95M15 9.5V5a3 3 0 0 0-5.6-1.5M5 10a7 7 0 0 0 12 4.9M19 10a7 7 0 0 1-1 3.6M12 17v5m-5 0h10M2 2l20 20"/></symbol>
+  <symbol id="i-monitor-up" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="15" rx="2"/><path d="M8 22h8M12 18v4M12 14V7m0 0-3 3m3-3 3 3"/></symbol>
+  <symbol id="i-phone-off" viewBox="0 0 24 24"><path d="M3.5 10.5q8.5-8 17 0l-2.5 5q-.5 1-1.6.5l-2.4-1v-2q-2-1-4 0v2l-2.4 1q-1.1.5-1.6-.5z"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4V5ZM15 9a5 5 0 0 1 0 6M17 5a10 10 0 0 1 0 14"/></symbol>
+  <symbol id="i-volume-off" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4V5ZM16 9l5 6m0-6-5 6"/></symbol>
+  <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14V12a9 9 0 0 1 18 0v2M3 14h4v8H5a2 2 0 0 1-2-2v-6Zm14 0h4v6a2 2 0 0 1-2 2h-2v-8Z"/></symbol>
 </svg>
 
 <div id="auth-screen" class="auth-screen">
@@ -97,21 +104,30 @@
   </aside>
   <main class="chat-main">
     <header class="chat-header"><button class="mobile-menu icon-button" id="mobile-menu" title="Open channels"><svg><use href="#i-menu" /></svg></button><div class="header-icon" id="header-symbol"><svg><use href="#i-hash" /></svg></div><div class="header-title"><strong id="room-name">general</strong><span class="header-sep"></span><span id="room-topic">the place for everything. say hello.</span></div><div class="header-tools"><button class="icon-button notif-button" id="notification-button" title="Mentions and pings" aria-label="Notifications"><svg><use href="#i-bell" /></svg><span id="notification-count" class="notification-count" hidden>0</span></button><button class="icon-button" id="header-members" title="Toggle member list"><svg><use href="#i-users" /></svg></button><button class="icon-button" id="header-search" title="Find people"><svg><use href="#i-search" /></svg></button></div></header>
-    <section class="voice-stage" id="voice-stage" hidden aria-label="Voice room and live streams">
-      <div class="voice-stage-head"><strong id="voice-stage-title">Voice room</strong><span id="voice-stage-status">Connected</span><button id="voice-stage-close" type="button" aria-label="Hide call view">×</button></div>
-      <div class="voice-stage-people" id="voice-stage-people"></div>
-      <div class="voice-stream-grid" id="voice-stream-grid"></div>
+    <section class="voice-stage" id="voice-stage" hidden aria-label="Voice room call view">
+      <div class="voice-stage-head">
+        <div class="voice-call-title"><span class="voice-call-head-icon"><svg><use href="#i-headphones" /></svg></span><div><span class="voice-call-kicker">MR H MEDIA · VOICE CHANNEL</span><strong id="voice-stage-title">Voice room</strong></div></div>
+        <div class="voice-head-actions"><span class="voice-call-live"><i></i><span id="voice-stage-status">Connecting…</span></span><button id="voice-sounds" type="button" class="voice-icon-control" title="Toggle join/leave sounds" aria-label="Turn off call sounds"><svg><use href="#i-volume" /></svg></button><button id="voice-stage-close" type="button" class="voice-icon-control" title="Back to text chat" aria-label="Back to text chat"><svg><use href="#i-close" /></svg></button></div>
+      </div>
+      <div class="voice-call-content">
+        <div class="voice-call-center">
+          <div class="voice-call-banner"><div class="voice-call-eyebrow"><span class="voice-live-dot"></span> VOICE CONNECTED</div><h2>hang out together<span>.</span></h2><p>Talk, chill, and share your screen with everyone in this room.</p></div>
+          <div class="voice-stage-people" id="voice-stage-people" aria-label="Participants in the call"></div>
+          <div class="voice-stream-grid" id="voice-stream-grid" aria-label="Screen shares"></div>
+        </div>
+      </div>
+      <div class="voice-call-footer"><span id="voice-call-footer-count" class="voice-call-footer-count">Connected</span><div class="voice-call-toolbar"><button id="voice-call-mute" type="button" class="voice-call-tool" title="Toggle microphone"><svg><use href="#i-mic" /></svg><span>Mute</span></button><button id="voice-call-share" type="button" class="voice-call-tool" title="Share your screen"><svg><use href="#i-monitor-up" /></svg><span>Share screen</span></button><button id="voice-call-leave" type="button" class="voice-call-tool voice-call-hangup" title="Disconnect from voice"><svg><use href="#i-phone-off" /></svg><span>Disconnect</span></button></div><button id="voice-back-chat" type="button" class="voice-back-chat">Text chat <svg><use href="#i-arrow" /></svg></button></div>
     </section>
     <div class="chat-scroller" id="chat-scroller"><div id="older-holder" class="older-holder"></div><div id="messages"></div></div>
     <div class="typing-indicator" id="typing-indicator"></div>
     <div class="composer-area" id="composer-area"><div class="reply-composer" id="reply-composer" hidden></div><div class="selected-file" id="selected-file" hidden></div><form id="message-form" class="composer"><input type="file" id="chat-file" hidden><button type="button" class="composer-tool attachment-trigger" id="add-attachment" title="Attach a file (up to 8 MB)"><svg><use href="#i-paperclip" /></svg></button><textarea id="message-input" rows="1" maxlength="2000" placeholder="Message #general" aria-label="Your message"></textarea><button type="button" id="emoji-button" class="composer-tool" title="Insert emoji"><svg><use href="#i-smile" /></svg></button><button type="submit" class="composer-send" id="send-button" title="Send message"><svg><use href="#i-send" /></svg></button></form><div id="emoji-popover" class="emoji-popover" hidden></div><div class="compose-note">be kind. be real. <span>enter to send · shift+enter for new line</span></div></div>
   </main>
-  <aside class="members-pane" id="members-pane"><div class="members-head"><span>THE COMMUNITY</span><span id="members-total">0 MEMBERS</span></div><div class="members-scroll"><div class="community-badge"><span>✳</span><div><strong>good to have you here.</strong><p>every great conversation starts with hello.</p></div></div><div class="section-header member-group">ONLINE — <span id="online-count">0</span></div><div id="online-list"></div><div class="section-header member-group">OFFLINE — <span id="offline-count">0</span></div><div id="offline-list"></div></div></aside>
+  <aside class="members-pane" id="members-pane"><section class="voice-roster-pane" id="voice-roster-pane"><div class="voice-roster-head">IN THIS CALL <small id="voice-roster-count">0 PEOPLE</small></div><div class="voice-roster-list" id="voice-roster-list"></div></section><div class="members-head"><span>THE COMMUNITY</span><span id="members-total">0 MEMBERS</span></div><div class="members-scroll"><div class="community-badge"><span>✳</span><div><strong>good to have you here.</strong><p>every great conversation starts with hello.</p></div></div><div class="section-header member-group">ONLINE — <span id="online-count">0</span></div><div id="online-list"></div><div class="section-header member-group">OFFLINE — <span id="offline-count">0</span></div><div id="offline-list"></div></div></aside>
 </div>
 
 <div id="modal-backdrop" class="modal-backdrop" hidden><section id="modal-content" class="modal-content" role="dialog" aria-modal="true" aria-label="Dialog"></section></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-<script src="/static/app.js?v=6" defer></script>
+<script src="/static/app.js?v=7" defer></script>
 <div id="voice-audio" hidden></div>
 </body>
 </html>
