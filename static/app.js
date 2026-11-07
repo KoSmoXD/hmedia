@@ -121,6 +121,9 @@ function connectWs(){if(state.ws){state.ws.onclose=null;state.ws.close();state.w
       const scroll=$('chat-scroller');const near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<175;
       appendMessages([packet.message]);if(near||packet.message.user.id===state.me.id)scrollBottom();
       if(state.mode==='dm'&&packet.message.user.id!==state.me.id)refreshDms();
+    }else if(packet.type==='moderation-warning'){
+      showToast('⚠ Warning '+packet.count+'/3: '+packet.reason);
+      if(typeof v8SyncOwnWarnings==='function')v8SyncOwnWarnings();
     }else if(packet.type==='reaction'){const m=state.msgById.get(packet.message_id);if(m){m.reactions=packet.reactions;const tile=document.querySelector(`[data-msg="${packet.message_id}"]`);if(tile){const old=tile.querySelector('.v8-reactions');if(old)old.outerHTML=v8ReactionHtml(m)}}}
     else if(packet.type==='message-deleted'){const el=document.querySelector(`[data-msg="${packet.message_id}"]`);el?.remove();state.msgIds.delete(packet.message_id);state.msgById.delete(packet.message_id)}
     else if(packet.type==='channel-deleted'){showToast('Channel was deleted.');state.channels=state.channels.filter(c=>c.slug!==packet.slug);openChannel('general')}else if(packet.type==='presence'){state.online=new Set(packet.online);renderMembers();if(packet.online.some(id=>id!==state.me.id&&!state.members.some(u=>u.id===id)))refreshMembers()}
@@ -321,7 +324,7 @@ async function openModeration(){
         const result=await api('/api/moderation/users/'+u.id+'/warn',{method:'POST',body:JSON.stringify({reason:reason.trim()})});
         showToast(result.banned?'@'+u.username+' automatically banned after 3 warnings.':'Warning '+result.warningCount+'/3 issued to @'+u.username+'.');
       }else if(action==='avatar'){
-        if(!confirm('Remove @'+u.username+'\\'s profile picture?'))return;
+        if(!confirm('Remove @'+u.username+"'s profile picture?"))return;
         await api('/api/moderation/users/'+u.id+'/avatar',{method:'DELETE'});
         showToast('Profile picture removed for @'+u.username+'.');
       }else if(action==='ban'||action==='unban'){
