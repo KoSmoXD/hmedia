@@ -269,7 +269,72 @@ $('messages').addEventListener('submit',async e=>{const form=e.target.closest('[
 function openPostEditor(){openModal(`<div class="compact-modal">${closeButton}<h2>New post</h2><p class="muted-p">Publish to your community. You can include one file (up to 8 MB).</p><form class="modal-form" id="post-form"><label>TITLE</label><input name="title" maxlength="120" required placeholder="What are you sharing?"><label>POST</label><textarea name="body" maxlength="5000" rows="5" placeholder="Write something…"></textarea><label>ATTACHMENT (OPTIONAL)</label><input type="file" name="file" id="post-file"><span id="post-status" class="settings-message"></span><button type="submit" class="save-btn">Publish post</button></form></div>`);$('post-form').addEventListener('submit',async(e)=>{e.preventDefault();const form=e.currentTarget,btn=form.querySelector('button[type=submit]'),data=new FormData(form),file=$('post-file').files?.[0];btn.disabled=true;$('post-status').textContent='Publishing…';try{if(file){if(file.size>8*1024*1024)throw new Error('Max file size: 8 MB.');await api('/api/posts/with-file',{method:'POST',body:data})}else{await api('/api/posts',{method:'POST',body:JSON.stringify({title:data.get('title'),body:data.get('body')})})}closeModal();await openPosts();showToast('Post published.')}catch(err){$('post-status').textContent=err.message;btn.disabled=false}})}
 
 async function banFromProfile(u){if(!confirm('Ban @'+u.username+' from Mr H Media? They will be logged out immediately.'))return;const reason=prompt('Reason for ban (optional):')||'';try{await api('/api/admin/users/'+u.id+'/ban',{method:'POST',body:JSON.stringify({reason})});closeModal();await refreshMembers();showToast('User banned.')}catch(err){showToast(err.message)}}
-async function openModeration(){if(state.me?.role!=='owner')return;openModal(`<div class="compact-modal moderation-panel">${closeButton}<h2>Moderation</h2><p class="muted-p">Ban users, or restore previously banned accounts.</p><input id="admin-search" class="finder-input" placeholder="Filter users…"><div id="moderation-list" class="finder-results"></div></div>`);let list=[];const render=()=>{$('moderation-list').innerHTML=list.filter(u=>(u.username+' '+u.display_name).toLowerCase().includes($('admin-search').value.toLowerCase())).map(u=>`<div class="moderation-row">${avatar(u)}<div><strong>${escapeHtml(u.username)}</strong><small>${u.role==='owner'?'owner':u.banned?'BANNED · '+escapeHtml(u.ban_reason||'no reason'):'member'}</small></div>${u.role==='owner'?'':`<button data-admin-id="${u.id}" data-admin-action="${u.banned?'unban':'ban'}">${u.banned?'Unban':'Ban'}</button>`}</div>`).join('')};try{list=await api('/api/admin/users');render()}catch(e){showToast(e.message)}$('admin-search').addEventListener('input',render);$('moderation-list').addEventListener('click',async(e)=>{const b=e.target.closest('[data-admin-action]');if(!b)return;const u=list.find(x=>x.id===Number(b.dataset.adminId));if(!u)return;const action=b.dataset.adminAction;if(!confirm((action==='ban'?'Ban ':'Unban ')+u.username+'?'))return;const reason=action==='ban'?(prompt('Reason for ban (optional):')||''):'';try{await api('/api/admin/users/'+u.id+'/'+action,{method:'POST',...(action==='ban'?{body:JSON.stringify({reason})}:{})});list=await api('/api/admin/users');render();await refreshMembers();showToast('User '+(action==='ban'?'banned.':'unbanned.'))}catch(err){showToast(err.message)}})}
+async function openModeration(){
+  if(!v8HasPermission('moderate'))return;
+  openModal(`<div class="compact-modal moderation-panel">${closeButton}<h2>Moderation</h2>
+   <p class="muted-p">Warn members, remove inappropriate profile pictures, and manage bans. Three active warnings automatically ban an account.</p>
+   <input id="admin-search" class="finder-input" placeholder="Filter members…">
+   <div id="moderation-list" class="finder-results"></div></div>`);
+  let list=[];
+  const ranks={owner:100,admin:75,moderator:50,vip:20,member:10};
+  const canTarget=u=>u.id!==state.me.id&&u.role!=='owner'&&(ranks[state.me.role]||15)>(ranks[u.role]||15);
+  function render(){
+    const query=$('admin-search').value.toLowerCase();
+    const filtered=list.filter(u=>(u.username+' '+u.display_name).toLowerCase().includes(query));
+    $('moderation-list').innerHTML=filtered.map(u=>{
+      const can=canTarget(u),count=Number(u.warning_count||0);
+      const actions=!can?'':`<div class="moderation-row-actions">
+       <button type="button" data-admin-action="history" data-admin-id="${u.id}">History</button>
+       ${!u.banned?`<button type="button" data-admin-action="warn" data-admin-id="${u.id}">⚠ Warn</button>`:''}
+       ${!u.banned&&u.avatar?`<button type="button" data-admin-action="avatar" data-admin-id="${u.id}">Remove PFP</button>`:''}
+       ${v8HasPermission('ban_users')?`<button type="button" data-admin-action="${u.banned?'unban':'ban'}" data-admin-id="${u.id}">${u.banned?'Unban':'Ban'}</button>`:''}
+       </div>`;
+      return `<div class="moderation-row">${avatar(u)}<div class="moderation-user"><strong>@${escapeHtml(u.username)}</strong><small>${escapeHtml(u.role)} · ${u.banned?'BANNED · '+escapeHtml(u.ban_reason||'no reason'):'Warnings: '+count+'/3'}</small></div>${actions}</div>`;
+    }).join('')||'<p class="muted-p">No matching accounts.</p>';
+  }
+  async function refresh(){
+    list=await api('/api/admin/users');render();
+    await refreshMembers();
+  }
+  try{await refresh()}catch(e){showToast(e.message);return;}
+  $('admin-search').addEventListener('input',render);
+  $('moderation-list').addEventListener('click',async e=>{
+    const btn=e.target.closest('[data-admin-action]');
+    if(!btn||btn.disabled)return;
+    const u=list.find(user=>user.id===Number(btn.dataset.adminId));
+    if(!u)return;
+    const action=btn.dataset.adminAction;
+    btn.disabled=true;
+    try{
+      if(action==='history'){
+        const info=await api('/api/moderation/users/'+u.id+'/warnings');
+        const items=info.history.map(w=>`<div class="v8-audit"><strong>${w.active?'Active':'Cleared'} warning</strong> · @${escapeHtml(w.issued_by)}<small>${escapeHtml(w.reason)} · ${escapeHtml(w.created_at)}</small></div>`).join('')||'<p>No warnings on record.</p>';
+        openModal(`<div class="compact-modal moderation-panel">${closeButton}<h2>Warnings for @${escapeHtml(u.username)}</h2><p>Active: ${info.warningCount}/3</p><div class="v8-scroll">${items}</div><button type="button" class="save-btn" id="warning-back">Back to moderation</button></div>`);
+        $('warning-back').onclick=openModeration;
+        return;
+      }
+      if(action==='warn'){
+        const reason=prompt('Why are you warning @'+u.username+'? (3–240 characters)');
+        if(reason===null)return;
+        if(reason.trim().length<3)return showToast('A warning needs a reason of at least 3 characters.');
+        if(!confirm('Issue warning '+(Number(u.warning_count||0)+1)+'/3 to @'+u.username+'? The third warning automatically bans the account.'))return;
+        const result=await api('/api/moderation/users/'+u.id+'/warn',{method:'POST',body:JSON.stringify({reason:reason.trim()})});
+        showToast(result.banned?'@'+u.username+' automatically banned after 3 warnings.':'Warning '+result.warningCount+'/3 issued to @'+u.username+'.');
+      }else if(action==='avatar'){
+        if(!confirm('Remove @'+u.username+'\\'s profile picture?'))return;
+        await api('/api/moderation/users/'+u.id+'/avatar',{method:'DELETE'});
+        showToast('Profile picture removed for @'+u.username+'.');
+      }else if(action==='ban'||action==='unban'){
+        if(!confirm((action==='ban'?'Ban ':'Unban ')+'@'+u.username+'?'))return;
+        const reason=action==='ban'?(prompt('Reason for ban (optional):')||''):'';
+        await api('/api/admin/users/'+u.id+'/'+action,{method:'POST',...(action==='ban'?{body:JSON.stringify({reason})}:{})});
+        showToast('@'+u.username+(action==='ban'?' banned.':' unbanned. Active warnings reset.'));
+      }
+      await refresh();
+    }catch(err){showToast(err.message);}
+    finally{btn.disabled=false;}
+  });
+}
 
 async function boot(){try{state.me=await api('/api/me');await enterApp()}catch(e){state.me=null;$('auth-screen').hidden=false;$('app-screen').hidden=true}}
 boot();
