@@ -130,3 +130,75 @@ def test_group_file_privacy_and_member_removal_disconnects():
         with pytest.raises(WebSocketDisconnect):ws.receive_json()
     assert b.get(f'/api/groups/{gid}/messages').status_code==403
     assert b.get(url).status_code==403
+
+def test_warning_escalation_moderator_permissions_and_avatar_removal():
+    owner,owner_id=account(None,True)
+    mod,mod_id=account('v8_warn_moderator')
+    member,uid=account('v8_warn_member')
+    outsider,outsider_id=account('v8_warn_outsider')
+    assert owner.post(f'/api/roles/assign/{mod_id}',json={'role':'moderator'}).status_code==200
+
+    # Unauthorized users cannot issue warnings or erase other people's profile photos.
+    assert outsider.post(f'/api/moderation/users/{uid}/warn',json={'reason':'No permission'}).status_code==403
+    assert outsider.delete(f'/api/moderation/users/{uid}/avatar').status_code==403
+    assert mod.post(f'/api/moderation/users/{owner_id}/warn',json={'reason':'Not allowed'}).status_code==403
+    assert mod.post(f'/api/moderation/users/{mod_id}/warn',json={'reason':'Not allowed'}).status_code==403
+    assert mod.post(f'/api/moderation/users/{uid}/warn',json={'reason':' '}).status_code in (400,422)
+
+    image=io.BytesIO()
+    Image.new('RGB',(36,36),'orange').save(image,format='PNG')
+    uploaded=member.post('/api/me/avatar',files={'file':('pfp.png',image.getvalue(),'image/png')})
+    assert uploaded.status_code==200,uploaded.text
+    old_avatar=uploaded.json()['avatar']
+    assert member.get(old_avatar).status_code==200
+    removed=mod.delete(f'/api/moderation/users/{uid}/avatar')
+    assert removed.status_code==200,removed.text
+    assert removed.json()['removed'] is True
+    assert member.get('/api/me').json()['avatar'] is None
+    assert member.get(old_avatar).status_code==404
+    assert mod.delete(f'/api/moderation/users/{owner_id}/avatar').status_code==403
+
+    # First and second warnings are persisted and delivered live.
+    with member.websocket_connect('/ws?channel=general') as ws:
+        assert ws.receive_json()['type']=='presence'
+        for count in (1,2):
+            warned=mod.post(f'/api/moderation/users/{uid}/warn',json={'reason':f'Rule violation {count}'})
+            assert warned.status_code==200,warned.text
+            assert warned.json()['warningCount']==count
+            assert warned.json()['banned'] is False
+            notice=ws.receive_json()
+            assert notice['type']=='moderation-warning'
+            assert notice['count']==count
+        own=member.get('/api/me/warnings')
+        assert own.status_code==200
+        assert own.json()['warningCount']==2
+        assert mod.get(f'/api/moderation/users/{uid}/warnings').json()['warningCount']==2
+        assert any(u['id']==uid and u['warning_count']==2 for u in mod.get('/api/admin/users').json())
+        # Third warning bans immediately; existing WebSocket sessions are disconnected.
+        last=mod.post(f'/api/moderation/users/{uid}/warn',json={'reason':'Third confirmed violation'})
+        assert last.status_code==200,last.text
+        assert last.json()['warningCount']==3 and last.json()['banned'] is True
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()
+
+    assert member.get('/api/me').status_code==401
+    assert member.post('/api/login',json={'username':'v8_warn_member','password':'member-password-123'}).status_code==403
+    banned=next(u for u in owner.get('/api/admin/users').json() if u['id']==uid)
+    assert banned['banned'] is True and banned['warning_count']==3
+    assert '3 warnings' in banned['ban_reason']
+    assert mod.post(f'/api/moderation/users/{uid}/warn',json={'reason':'Fourth warning'}).status_code==404
+    history=mod.get(f'/api/moderation/users/{uid}/warnings').json()
+    assert history['warningCount']==3 and len(history['history'])==3
+    assert all(w['active'] for w in history['history'])
+    assert owner.get('/api/moderation/logs').status_code==200
+
+    # Unbanning starts a new warning cycle while retaining audit records.
+    assert owner.post(f'/api/admin/users/{uid}/unban').status_code==200
+    history=mod.get(f'/api/moderation/users/{uid}/warnings').json()
+    assert history['warningCount']==0
+    assert len(history['history'])==3 and not any(w['active'] for w in history['history'])
+    assert member.post('/api/login',json={'username':'v8_warn_member','password':'member-password-123'}).status_code==200
+    assert member.get('/api/me/warnings').json()['warningCount']==0
+    after=mod.post(f'/api/moderation/users/{uid}/warn',json={'reason':'Fresh warning'})
+    assert after.status_code==200
+    assert after.json()['warningCount']==1 and not after.json()['banned']
