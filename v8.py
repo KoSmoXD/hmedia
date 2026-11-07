@@ -63,6 +63,15 @@ def install(ns):
               pinned_by INTEGER NOT NULL REFERENCES users(id),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL REFERENCES users(id),
               action TEXT NOT NULL,target TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS user_warnings(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                actor_id INTEGER NOT NULL REFERENCES users(id),
+                reason TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            );
+            CREATE INDEX IF NOT EXISTS warning_user_active ON user_warnings(user_id,active,id DESC);
             CREATE TABLE IF NOT EXISTS raids(ip_hash TEXT NOT NULL,created_at REAL NOT NULL);
             CREATE INDEX IF NOT EXISTS raids_window ON raids(ip_hash,created_at);
             ''')
@@ -468,6 +477,85 @@ def install(ns):
         ranks={'owner':100,'admin':75,'moderator':50,'vip':20,'member':10}
         if ranks.get(u['role'],15)<=ranks.get(target['role'],15):raise HTTPException(403,'Cannot moderate same or higher role.')
         return target
+    class WarningBody(BaseModel):
+        reason:str=Field(min_length=3,max_length=240)
+
+    @app.get('/api/moderation/users/{user_id}/warnings')
+    def moderation_warnings(user_id:int,request:Request):
+        actor=require_user(request);must(actor,'moderate')
+        with db() as c:
+            target=c.execute('SELECT * FROM users WHERE id=?',(user_id,)).fetchone()
+            if not target:raise HTTPException(404,'User not found.')
+            if target['role']=='owner' or target['id']==actor['id']:
+                raise HTTPException(403,'Cannot moderate the owner or yourself.')
+            ranks={'owner':100,'admin':75,'moderator':50,'vip':20,'member':10}
+            if ranks.get(actor['role'],15)<=ranks.get(target['role'],15):
+                raise HTTPException(403,'Cannot moderate same or higher role.')
+            rows=c.execute("""SELECT w.id,w.reason,w.active,w.created_at,a.username AS issued_by
+                FROM user_warnings w JOIN users a ON a.id=w.actor_id
+                WHERE w.user_id=? ORDER BY w.id DESC LIMIT 40""",(user_id,)).fetchall()
+            count=c.execute('SELECT COUNT(*) FROM user_warnings WHERE user_id=? AND active=1',(user_id,)).fetchone()[0]
+        return {'warningCount':count,'banned':bool(target['banned_at']),'history':[dict(r) for r in rows]}
+
+    @app.get('/api/me/warnings')
+    def own_warnings(request:Request):
+        actor=require_user(request)
+        with db() as c:
+            rows=c.execute("""SELECT reason,created_at FROM user_warnings
+                WHERE user_id=? AND active=1 ORDER BY id DESC LIMIT 3""",(actor['id'],)).fetchall()
+        return {'warningCount':len(rows),'reasons':[dict(r) for r in rows],'banAt':3}
+
+    @app.post('/api/moderation/users/{user_id}/warn')
+    async def warn_user(user_id:int,data:WarningBody,request:Request):
+        actor=require_user(request);must(actor,'moderate')
+        reason=data.reason.strip()
+        if len(reason)<3:raise HTTPException(400,'Explain the warning (at least 3 characters).')
+        with db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            target=moderation_target(c,actor,user_id)
+            c.execute('INSERT INTO user_warnings(user_id,actor_id,reason) VALUES (?,?,?)',(user_id,actor['id'],reason))
+            count=c.execute('SELECT COUNT(*) FROM user_warnings WHERE user_id=? AND active=1',(user_id,)).fetchone()[0]
+            audit(c,actor,'user.warn',user_id,json.dumps({'count':count,'reason':reason},ensure_ascii=False))
+            banned=count>=3
+            if banned:
+                ban_reason='Automatic ban: 3 warnings. Latest: '+reason
+                c.execute("""UPDATE users SET banned_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                    ban_reason=? WHERE id=?""",(ban_reason[:240],user_id))
+                c.execute('DELETE FROM sessions WHERE user_id=?',(user_id,))
+                audit(c,actor,'user.autoban',user_id,ban_reason)
+        # Users receive their warning immediately when connected, or can review it after login.
+        if banned:
+            for ws, (_, uid) in list(ns['connections'].items()):
+                if uid==user_id:
+                    ns['connections'].pop(ws,None)
+                    try:await ws.close(code=1008,reason='Banned after 3 warnings')
+                    except Exception:pass
+            await ns['presence']()
+            for ws, (_, uid) in list(ns['voice_connections'].items()):
+                if uid==user_id:
+                    try:await ws.close(code=1008,reason='Banned after 3 warnings')
+                    except Exception:pass
+        else:
+            for ws, (_, uid) in list(ns['connections'].items()):
+                if uid==user_id:
+                    try:await ws.send_json({'type':'moderation-warning','count':count,'reason':reason,'banAt':3})
+                    except Exception:pass
+        return {'ok':True,'warningCount':count,'banned':banned,'banAt':3}
+
+    @app.delete('/api/moderation/users/{user_id}/avatar')
+    def remove_user_avatar(user_id:int,request:Request):
+        actor=require_user(request);must(actor,'moderate')
+        with db() as c:
+            target=moderation_target(c,actor,user_id)
+            old=target['avatar']
+            if old is not None:
+                c.execute('UPDATE users SET avatar=NULL WHERE id=?',(user_id,))
+            audit(c,actor,'user.avatar.remove',user_id,'Removed profile photo' if old else 'No photo set')
+        # Do not delete anything except an avatar belonging to the actual target.
+        if old and re.fullmatch(r'/uploads/'+str(user_id)+r'_[a-f0-9]{24}\\.(?:png|gif|jpg)',old):
+            (UPLOADS/old.rsplit('/',1)[-1]).unlink(missing_ok=True)
+        return {'ok':True,'removed':bool(old)}
+
     @app.post('/api/moderation/users/{user_id}/timeout')
     def timeout(user_id:int,data:TimeoutBody,request:Request):
         u=require_user(request);must(u,'moderate')
