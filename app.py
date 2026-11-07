@@ -619,7 +619,8 @@ def admin_users(request: Request):
     actor=require_user(request)
     if not (v8_allowed(actor,'moderate') or v8_allowed(actor,'ban_users')):raise HTTPException(403,'Not a moderator.')
     with db() as c:
-        return [{**user_dict(r), 'banned': bool(r['banned_at']), 'ban_reason': r['ban_reason']}
+        return [{**user_dict(r), 'banned': bool(r['banned_at']), 'ban_reason': r['ban_reason'],
+                 'warning_count':c.execute('SELECT COUNT(*) FROM user_warnings WHERE user_id=? AND active=1',(r['id'],)).fetchone()[0]}
                 for r in c.execute('SELECT * FROM users ORDER BY id DESC LIMIT 500')]
 
 @app.post('/api/admin/users/{user_id}/ban')
@@ -662,6 +663,8 @@ def unban_user(user_id: int, request: Request):
         if target['role'] == 'owner':
             raise HTTPException(403, 'The owner is not bannable.')
         c.execute("UPDATE users SET banned_at=NULL,ban_reason='' WHERE id=?", (user_id,))
+        # Retain the audit history but reset the active strike count on unban.
+        c.execute('UPDATE user_warnings SET active=0 WHERE user_id=? AND active=1',(user_id,))
         v8_audit(c,actor,'user.unban',user_id)
     return {'ok': True}
 
