@@ -42,10 +42,30 @@ async function v8RefreshEmojis(){
   }catch(e){showToast('Could not refresh custom emojis.');}
 }
 function v8Notify(text,tag){if(state.me?.notification_settings?.desktop && 'Notification' in window && Notification.permission==='granted' && document.hidden){new Notification('Mr H Media',{body:text.slice(0,150),tag})}}
+async function v8SyncOwnWarnings(){
+  if(!state.me)return;
+  try{
+    const details=await api('/api/me/warnings');
+    let badge=$('dock-warnings');
+    if(!badge){
+      badge=document.createElement('button');
+      badge.id='dock-warnings';badge.type='button';badge.className='dock-warning-badge';
+      $('dock-handle').after(badge);
+      badge.onclick=()=>{
+        const records=(state.myWarnings?.reasons||[]).map(item=>'<div class="v8-audit"><strong>⚠ Warning</strong><small>'+escapeHtml(item.reason)+' · '+escapeHtml(item.created_at)+'</small></div>').join('');
+        v8Popup('Your warnings','<p>3 active warnings result in an automatic ban. Current warnings: '+(state.myWarnings?.warningCount||0)+'/3.</p><div class="v8-scroll">'+(records||'<p>No warnings.</p>')+'</div>');
+      };
+    }
+    state.myWarnings=details;
+    badge.hidden=!details.warningCount;
+    badge.textContent='⚠ '+details.warningCount+'/3 warnings';
+    badge.title='View your active warnings (3 warnings = ban)';
+  }catch(e){console.warn('Warning status could not be loaded.');}
+}
 async function v8Initialize(){
   try{const [meta,groups,emojis]=await Promise.all([api('/api/v8/meta'),api('/api/groups'),api('/api/emojis')]);state.v8Permissions=meta.permissions;state.groups=groups;v8CustomEmojis=emojis;renderGroupList();
     $('new-channel').hidden=!v8HasPermission('manage_channels');$('new-voice').hidden=!v8HasPermission('manage_channels');$('owner-moderation').hidden=!v8HasPermission('moderate');
-    await v8Unread();v8BuildEmojiPicker();v8HydrateEmojis();
+    await v8Unread();v8BuildEmojiPicker();v8HydrateEmojis();await v8SyncOwnWarnings();
   }catch(error){console.warn('v8 unavailable',error)}
 }
 function renderGroupList(){const root=$('group-list');if(!root)return;root.innerHTML=state.groups.map(g=>`<div class="channel-line"><button class="channel-item ${state.unreadRooms?.['group:'+g.id]&&!(state.mode==='group'&&state.group===g.id)?'v8-unread':''} ${state.mode==='group'&&state.group===g.id?'active':''}" data-open-group="${g.id}">👥 <span>${escapeHtml(g.name)}</span></button><button class="delete-channel" data-group-call="${g.id}" title="Join private group call">☎</button></div>`).join('')}
@@ -102,14 +122,41 @@ async function v8ManageEmojis(){
 }
 async function v8EmojiUpload(){if(!v8HasPermission('manage_emoji'))return showToast('You do not have permission to upload emojis.');v8Popup('Add custom emoji',`<form class="modal-form" id="v8-emoji-form"><label>EMOJI NAME</label><input name="name" required pattern="[a-zA-Z0-9_]{2,24}" placeholder="mrh"><label>IMAGE (PNG, WEBP, GIF)</label><input name="file" type="file" accept="image/png,image/webp,image/gif" required><button class="save-btn">Upload emoji</button></form>`);$('v8-emoji-form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);try{await api('/api/emojis?name='+encodeURIComponent(fd.get('name')),{method:'POST',body:(()=>{const b=new FormData();b.append('file',fd.get('file'));return b})()});v8CustomEmojis=await api('/api/emojis');v8BuildEmojiPicker();closeModal();showToast('Emoji uploaded.')}catch(err){showToast(err.message)}}}
 async function v8Slowmode(){if(state.mode!=='channel')return showToast('Open a channel first.');const value=prompt('Slowmode in #'+state.room+' (seconds, 0 to disable):','5');if(value===null)return;try{await api(`/api/channels/${state.room}/slowmode`,{method:'PATCH',body:JSON.stringify({seconds:Number(value)})});showToast('Slowmode updated.')}catch(err){showToast(err.message)}}
+async function v8WarnAccount(id){
+  const user=state.members.find(u=>u.id===id)||state.dms.find(u=>u.id===id);
+  const name=user?.username||'user #'+id;
+  const reason=prompt('Reason for warning @'+name+' (3–240 characters):');
+  if(reason===null)return;
+  if(reason.trim().length<3)return showToast('Please give a reason of at least 3 characters.');
+  if(!confirm('Warn @'+name+'? On the third warning, the user will be automatically banned.'))return;
+  const result=await api('/api/moderation/users/'+id+'/warn',{method:'POST',body:JSON.stringify({reason:reason.trim()})});
+  await refreshMembers();
+  if(result.banned){
+    closeModal();showToast('⚠ @'+name+' automatically banned after 3 warnings.');
+  }else{
+    if(peerById(id))showUserProfile(id);
+    showToast('⚠ Warning '+result.warningCount+'/3 issued to @'+name+'.');
+  }
+}
+async function v8RemoveAvatar(id){
+  const user=state.members.find(u=>u.id===id)||state.dms.find(u=>u.id===id);
+  const name=user?.username||'user #'+id;
+  if(!confirm('Remove @'+name+"'s profile picture?"))return;
+  const result=await api('/api/moderation/users/'+id+'/avatar',{method:'DELETE'});
+  await refreshMembers();
+  if(peerById(id))showUserProfile(id);
+  showToast(result.removed?'Profile picture removed for @'+name+'.':'This user has no profile picture.');
+}
 async function v8Timeout(){const userId=Number(prompt('User ID to timeout:'));if(!userId)return;const seconds=Number(prompt('Timeout duration (seconds, 0 to remove):','300'));try{await api(`/api/moderation/users/${userId}/timeout`,{method:'POST',body:JSON.stringify({seconds,reason:'Moderator action'})});showToast('Timeout updated.')}catch(err){showToast(err.message)}}
 // Delegated buttons work in modals, user profiles, reactions and the message list.
 document.addEventListener('click',async e=>{
-  const b=e.target.closest('[data-v8-friend],[data-v8-block],[data-v8-assign],[data-v8-create-group],[data-v8-find-friend],[data-v8-accept],[data-v8-remove],[data-v8-unblock],[data-v8-chat],[data-v8-call],[data-v8-thread-reply],[data-v8-jump],[data-v8-roles],[data-v8-emoji-upload],[data-v8-slowmode],[data-v8-timeout],[data-v8-bans],[data-v8-emoji],[data-thread],[data-pin],[data-reaction],[data-react-message],[data-delete-message]');
+  const b=e.target.closest('[data-v8-friend],[data-v8-block],[data-v8-assign],[data-v8-create-group],[data-v8-find-friend],[data-v8-accept],[data-v8-remove],[data-v8-unblock],[data-v8-chat],[data-v8-call],[data-v8-thread-reply],[data-v8-jump],[data-v8-roles],[data-v8-emoji-upload],[data-v8-slowmode],[data-v8-timeout],[data-v8-bans],[data-v8-emoji],[data-thread],[data-pin],[data-reaction],[data-react-message],[data-v8-warn],[data-v8-remove-avatar],[data-delete-message]');
   if(!b)return;let x;try{
     if(b.dataset.v8Friend){await v8RequestFriend(Number(b.dataset.v8Friend))}
     else if(b.dataset.v8Block){if(confirm('Block this user?')){await api(`/api/blocks/${b.dataset.v8Block}`,{method:'POST'});closeModal();showToast('User blocked.')}}
     else if(b.dataset.v8Assign)await v8AssignRole(Number(b.dataset.v8Assign));
+    else if(b.dataset.v8Warn)await v8WarnAccount(Number(b.dataset.v8Warn));
+    else if(b.dataset.v8RemoveAvatar)await v8RemoveAvatar(Number(b.dataset.v8RemoveAvatar));
     else if(b.hasAttribute('data-v8-create-group'))v8CreateGroup();
     else if(b.hasAttribute('data-v8-find-friend'))openFinder();
     else if(b.dataset.v8Accept){await api(`/api/friends/${b.dataset.v8Accept}/accept`,{method:'POST'});v8Friends()}
