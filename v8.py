@@ -552,7 +552,7 @@ def install(ns):
                 c.execute('UPDATE users SET avatar=NULL WHERE id=?',(user_id,))
             audit(c,actor,'user.avatar.remove',user_id,'Removed profile photo' if old else 'No photo set')
         # Do not delete anything except an avatar belonging to the actual target.
-        if old and re.fullmatch(r'/uploads/'+str(user_id)+r'_[a-f0-9]{24}\\.(?:png|gif|jpg)',old):
+        if old and re.fullmatch(r'/uploads/'+str(user_id)+r'_[a-f0-9]{24}\.(?:png|gif|jpg)',old):
             (UPLOADS/old.rsplit('/',1)[-1]).unlink(missing_ok=True)
         return {'ok':True,'removed':bool(old)}
 
