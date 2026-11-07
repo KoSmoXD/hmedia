@@ -323,8 +323,38 @@ def require_owner(request: Request):
         raise HTTPException(403, 'Only the owner can do that.')
     return u
 
+def recover_verified_owner_once():
+    """One-time deployment recovery, guarded by a private nonce and password.
+
+    Neither the temporary secret nor the nonce is exposed to site visitors, stored
+    in Git, or printed in the service logs. A persisted nonce digest makes repeated
+    container restarts idempotent and never upgrades a normal account to owner.
+    """
+    password = os.environ.get('MRH_RECOVERY_PASSWORD', '')
+    nonce = os.environ.get('MRH_RECOVERY_NONCE', '')
+    if not password and not nonce:
+        return
+    if not (24 <= len(password) <= 128 and len(nonce) >= 24):
+        raise RuntimeError('Incomplete or invalid private owner recovery configuration.')
+    digest = hashlib.sha256(nonce.encode('utf-8')).hexdigest()
+    with db() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS owner_recovery_history (
+            nonce_hash TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+        if c.execute('SELECT 1 FROM owner_recovery_history WHERE nonce_hash=?', (digest,)).fetchone():
+            return
+        owner = c.execute("SELECT id FROM users WHERE username='Mr_H' COLLATE NOCASE AND role='owner'").fetchone()
+        if not owner:
+            raise RuntimeError('Verified Mr_H owner account not found; recovery refused.')
+        c.execute('UPDATE users SET password_hash=? WHERE id=?', (hash_password(password), owner['id']))
+        c.execute('DELETE FROM sessions WHERE user_id=?', (owner['id'],))
+        c.execute('INSERT INTO owner_recovery_history(nonce_hash) VALUES(?)', (digest,))
+    print('One-time verified owner password reset applied; sessions revoked.', flush=True)
+
 app = FastAPI(title='Mr H Media', docs_url=None, redoc_url=None)
 init_db()
+recover_verified_owner_once()
 app.mount('/static', StaticFiles(directory=str(BASE / 'static')), name='static')
 
 @app.middleware('http')
