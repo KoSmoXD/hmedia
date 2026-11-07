@@ -179,6 +179,19 @@ const closeButton='<button class="modal-close" type="button" aria-label="Close d
 function showUserProfile(id){const u=peerById(id)|| (state.me?.id===id?state.me:null);if(!u)return;
   openModal(`<div class="compact-modal" style="padding:0;max-width:440px">${closeButton}<div class="profile-banner" style="background:${escapeHtml(u.profile_color||'#4a3c66')};${u.banner?`background-image:url('${u.banner}');background-size:cover;background-position:center`:``}"></div>${avatar(u,'user-modal-avatar')}<div class="public-profile-body"><h2>${escapeHtml(u.display_name)} ${roleBadge(u)}</h2><div class="handle">@${escapeHtml(u.username)}</div><div class="settings-label" style="padding:0">ABOUT ME</div><p class="about">${escapeHtml(u.bio||'Just hanging out on Mr H Media.')}</p><p class="v8-user-status">${escapeHtml(u.status||'')}</p>${u.id!==state.me.id?'<button class="save-btn" id="profile-message">'+icon('message')+' &nbsp; Send message</button>':'<button class="save-btn" id="profile-edit">Edit my profile</button>'}</div></div>`);
   if(v8HasPermission('ban_users')&&u.role!=='owner'){$('modal-content').querySelector('.public-profile-body').insertAdjacentHTML('beforeend',`<button class="ban-profile-btn" id="ban-profile">Ban @${escapeHtml(u.username)}</button>`);$('ban-profile').addEventListener('click',()=>banFromProfile(u))}
+  const ranks={owner:100,admin:75,moderator:50,vip:20,member:10};
+  const canModerate=v8HasPermission('moderate')&&u.id!==state.me.id&&u.role!=='owner'&&
+    (ranks[state.me.role]||15)>(ranks[u.role]||15);
+  if(canModerate){
+    const controls=document.createElement('div');
+    controls.className='profile-moderation-actions';
+    controls.innerHTML=`<span class="profile-warning-count" data-warning-user="${u.id}">Warnings · …/3</span><div class="v8-user-actions"><button type="button" data-v8-warn="${u.id}">⚠ Warn user</button>${u.avatar?`<button type="button" data-v8-remove-avatar="${u.id}">Remove profile picture</button>`:''}</div>`;
+    $('modal-content').querySelector('.public-profile-body').append(controls);
+    api('/api/moderation/users/'+u.id+'/warnings').then(data=>{
+      const count=document.querySelector('[data-warning-user="'+u.id+'"]');
+      if(count)count.textContent='Warnings · '+data.warningCount+'/3';
+    }).catch(()=>{});
+  }
   $('profile-message')?.addEventListener('click',()=>{closeModal();openDm(u.id)});
   if(u.id!==state.me.id){$('modal-content').querySelector('.public-profile-body').insertAdjacentHTML('beforeend',`<div class="v8-user-actions"><button data-v8-friend="${u.id}">Add friend</button><button data-v8-block="${u.id}">Block</button>${v8HasPermission('manage_roles')?`<button data-v8-assign="${u.id}">Assign role</button>`:''}</div>`)}$('profile-edit')?.addEventListener('click',()=>openSettings('profile'));
 }
