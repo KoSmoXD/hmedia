@@ -1,4 +1,12 @@
-# Mr H Media
+# Mrh Tube
+
+Mrh Tube is a responsive video site with a curated set of YouTube embeds and community uploads. Members can create an account, log in, upload MP4/WebM videos (up to 100 MB), comment, like videos, and keep saved videos and history. The server runs from `tube.py`; the client is in `tube_static/`.
+
+The production Railway service uses the existing `/data` volume. Mrh Tube stores accounts and uploads in `tube.sqlite3`, `tube_videos/`, and `tube_posters/`. Existing unbanned chat accounts are imported on startup, preserving their usernames and password hashes. The previous Mr H Media chat database is left intact for rollback. `COOKIE_SECURE=1` is required for public HTTPS. The service uses one replica because SQLite is on a single mounted volume.
+
+For local development, install `requirements.txt`, set `COOKIE_SECURE=0`, and run `uvicorn tube:app --reload`. Accounts use usernames and passwords; there is no email verification or password recovery yet. The built-in video catalog is curated, and searching it does not call YouTube's live search API.
+
+## Previous Mr H Media chat app
 
 Dark, Discord-inspired community chat site. **Real accounts, permanent message history, real-time WebSocket chat, private messages, editable profiles, and avatar uploads.** This is a full-stack website, not a static design mock-up.
 
