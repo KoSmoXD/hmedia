@@ -99,7 +99,7 @@ function renderChannel(){
   const {user,entries}=profile;
   const own=state.user?.id===user.id;
   const name=user.display_name||user.username;
-  main.innerHTML=`<header class="channel-header">${channelIcon({channel:user.username,channel_name:name,channel_avatar:user.avatar_url,color:'#8066a5'})}<div><h1>${escapeHtml(name)}</h1><p>@${escapeHtml(user.username)} · ${entries.length} ${entries.length===1?'video':'videos'}</p>${user.bio?`<p class="profile-bio">${escapeHtml(user.bio)}</p>`:''}${own?'<button class="pill-button" id="editProfileButton">Edit profile</button>':''}</div></header>${entries.length?`<div class="video-grid">${entries.map(v=>card(v)).join('')}</div>`:empty('No uploads yet','Public videos will appear here.')}`;
+  main.innerHTML=`<header class="channel-header">${channelIcon({channel:user.username,channel_name:name,channel_avatar:user.avatar_url,color:'#8066a5'})}<div><h1>${escapeHtml(name)} ${user.is_owner?'<span class="owner-badge">Owner</span>':''}</h1><p>@${escapeHtml(user.username)} · ${entries.length} ${entries.length===1?'video':'videos'}</p>${user.bio?`<p class="profile-bio">${escapeHtml(user.bio)}</p>`:''}${own?'<button class="pill-button" id="editProfileButton">Edit profile</button>':''}${state.user?.is_owner&&!user.is_owner?`<button class="pill-button" id="banAccount">${user.is_banned?'Unban':'Ban'} account</button>`:''}</div></header>${entries.length?`<div class="video-grid">${entries.map(v=>card(v)).join('')}</div>`:empty('No uploads yet','Public videos will appear here.')}`;
 }
 function renderShorts(){
   const entries=videos.filter(v=>v.category==='Shorts');
@@ -112,13 +112,60 @@ function renderShorts(){
   main.innerHTML=`<section class="short-view"><div class="short-media">${playerMarkup(v,false)}</div><div class="short-details"><h1>${escapeHtml(v.title)}</h1><p>${channelLink(v)}</p><p>${escapeHtml(v.description)}</p><nav aria-label="Shorts navigation">${previous?`<a class="pill-button" href="#shorts/${encodeURIComponent(previous.id)}">Previous</a>`:''}${next?`<a class="pill-button" href="#shorts/${encodeURIComponent(next.id)}">Next</a>`:''}</nav><a class="pill-button" href="#watch/${encodeURIComponent(v.id)}">Open watch page</a></div></section>`;
 }
 function findVideo(id){return videos.find(v=>v.id===id)||[...profiles.values()].flatMap(p=>p.entries||[]).find(v=>v.id===id);}
-function renderWatch(){const v=findVideo(state.video);if(!v){main.innerHTML=empty('Video not found','Choose another video.');return;}const recommendations=videos.filter(x=>x.id!==v.id).sort((a,b)=>(a.category===v.category?-1:0)-(b.category===v.category?-1:0)).slice(0,12);const liked=state.likes.includes(v.id),saved=state.saved.includes(v.id);const player=playerMarkup(v);main.innerHTML=`<div class="watch-layout"><section><div class="player">${player}</div><h1 class="watch-title">${escapeHtml(v.title)}</h1><div class="watch-row"><div class="channel-block">${channelIcon(v)}<div><strong>${channelLink(v)}</strong><small>Video creator</small></div></div><div class="watch-actions"><button class="pill-button ${liked?'active':''}" id="likeButton">${liked?'♥ Liked':'♡ Like'}</button><button class="pill-button ${saved?'active':''}" id="saveButton">${saved?'✓ Saved':'+ Save'}</button><button class="pill-button" id="shareButton">↗ Share</button>${v.video_url?'':`<a class="pill-button" href="https://www.youtube.com/watch?v=${v.id}" target="_blank" rel="noopener noreferrer">Open on YouTube</a>`}</div></div><div class="desc-box"><strong>${escapeHtml(v.views)} · ${escapeHtml(v.age)}</strong><p>${escapeHtml(v.description)}</p></div><section class="comments"><h3>Comments</h3><form class="comment-form" id="commentForm"><span class="avatar">${state.user?escapeHtml(state.user.username[0].toUpperCase()):'?'}</span><input id="commentInput" placeholder="${state.user?'Add a comment…':'Log in to comment'}" maxlength="500" required><button type="submit">Comment</button></form><div id="commentList"></div></section></section><aside class="recommendations"><h3>Up next</h3>${recommendations.map(mini).join('')}</aside></div>`;renderComments(v.id);loadComments(v.id);}
-function renderComments(id){const list=state.comments[id]||[];const target=$('#commentList');if(!target)return;target.innerHTML=list.length?'':`<p class="video-subtitle">No comments yet. Be the first.</p>`;for(const item of list){const row=document.createElement('div');row.className='comment';const avatar=document.createElement('span');avatar.className='avatar';avatar.textContent=(item.username||'?')[0].toUpperCase();const body=document.createElement('div');const name=document.createElement('strong');name.textContent=item.username||'Member';const p=document.createElement('p');p.textContent=item.text;const date=document.createElement('small');date.textContent=new Date(item.time).toLocaleString();body.append(name,p,date);row.append(avatar,body);target.append(row);}}
+function renderWatch(){const v=findVideo(state.video);if(!v){main.innerHTML=empty('Video not found','Choose another video.');return;}const recommendations=videos.filter(x=>x.id!==v.id).sort((a,b)=>(a.category===v.category?-1:0)-(b.category===v.category?-1:0)).slice(0,12);const liked=state.likes.includes(v.id),saved=state.saved.includes(v.id);const player=playerMarkup(v);main.innerHTML=`<div class="watch-layout"><section><div class="player">${player}</div><h1 class="watch-title">${escapeHtml(v.title)}</h1><div class="watch-row"><div class="channel-block">${channelIcon(v)}<div><strong>${channelLink(v)}</strong><small>Video creator</small></div></div><div class="watch-actions"><button class="pill-button ${liked?'active':''}" id="likeButton">${liked?'♥ Liked':'♡ Like'}</button><button class="pill-button ${saved?'active':''}" id="saveButton">${saved?'✓ Saved':'+ Save'}</button><button class="pill-button" id="shareButton">↗ Share</button>${state.user?.is_owner?'<button class="pill-button" id="removeVideo">Remove video</button>':''}${v.video_url?'':`<a class="pill-button" href="https://www.youtube.com/watch?v=${v.id}" target="_blank" rel="noopener noreferrer">Open on YouTube</a>`}</div></div><div class="desc-box"><strong>${escapeHtml(v.views)} · ${escapeHtml(v.age)}</strong><p>${escapeHtml(v.description)}</p></div><section class="comments"><h3>Comments</h3><form class="comment-form" id="commentForm"><span class="avatar">${state.user?escapeHtml(state.user.username[0].toUpperCase()):'?'}</span><input id="commentInput" placeholder="${state.user?'Add a comment…':'Log in to comment'}" maxlength="500" required><button type="submit">Comment</button></form><div id="commentList"></div></section></section><aside class="recommendations"><h3>Up next</h3>${recommendations.map(mini).join('')}</aside></div>`;renderComments(v.id);loadComments(v.id);}
+function renderComments(id){const list=state.comments[id]||[];const target=$('#commentList');if(!target)return;target.innerHTML=list.length?'':`<p class="video-subtitle">No comments yet. Be the first.</p>`;for(const item of list){const row=document.createElement('div');row.className='comment';const avatar=document.createElement('span');avatar.className='avatar';avatar.textContent=(item.username||'?')[0].toUpperCase();const body=document.createElement('div');const name=document.createElement('strong');name.textContent=item.username||'Member';const p=document.createElement('p');p.textContent=item.text;const date=document.createElement('small');date.textContent=new Date(item.time).toLocaleString();body.append(name,p,date);if(state.user?.is_owner){const button=document.createElement('button');button.type='button';button.className='pill-button';button.textContent='Remove comment';button.addEventListener('click',()=>moderateComment(item.id,id));body.append(button);}row.append(avatar,body);target.append(row);}}
 async function loadComments(id){try{const list=await api('/api/comments/'+encodeURIComponent(id));state.comments[id]=list;if(state.video===id)renderComments(id);}catch{}}
 function render(){document.body.classList.toggle('light',state.light);renderNav();search.value=state.page==='search'?state.query:'';const renderPage={watch:renderWatch,shorts:renderShorts,channel:renderChannel};(renderPage[state.page]||renderFeed)();document.title=state.page==='watch'?(findVideo(state.video)?.title||'Video')+' — MrHTube':'MrHTube';}
 function go(page,options={}){state.page=page;state.video=null;if(options.video){state.video=options.video;if(state.user){state.history=[options.video,...state.history.filter(x=>x!==options.video)].slice(0,100);api('/api/history/'+encodeURIComponent(options.video),{method:'POST'}).catch(()=>{});}}if(options.query!==undefined){state.query=options.query;state.category='All';}const hash=page==='watch'?`#watch/${state.video}`:page==='search'?`#search/${encodeURIComponent(state.query)}`:`#${page}`;if(location.hash!==hash)history.pushState(null,'',hash);render();window.scrollTo(0,0);}
 function syncHash(){let raw;try{raw=decodeURIComponent(location.hash.slice(1)||'home');}catch{raw='home';}state.video=null;if(raw.startsWith('watch/')){state.page='watch';state.video=raw.slice(6);}else if(raw.startsWith('shorts/')){state.page='shorts';state.video=raw.slice(7);}else if(raw.startsWith('channel/')){state.page='channel';state.channel=raw.slice(8);}else if(raw.startsWith('search/')){state.page='search';state.query=raw.slice(7);state.category='All';}else{state.page=['home','shorts','subscriptions','history','saved','liked'].includes(raw)?raw:'home';}render();}
 async function toggleList(key,id){if(!state.user){openAccount();return;}try{const result=await api('/api/library/'+key+'/'+encodeURIComponent(id),{method:'POST'});state[key]=result.active?[id,...state[key].filter(x=>x!==id)]:state[key].filter(x=>x!==id);const button=$(key==='likes'?'#likeButton':'#saveButton');if(button){button.classList.toggle('active',result.active);button.textContent=key==='likes'?(result.active?'♥ Liked':'♡ Like'):(result.active?'✓ Saved':'+ Save');}toast(result.active?'Saved to your account':'Removed from your account');}catch(error){toast(error.message);}}
+
+async function moderateAccount(){
+  const key=state.channel.toLowerCase();
+  const user=profiles.get(key)?.user;
+  if(!user)return;
+  const action=user.is_banned?'Unban':'Ban';
+  if(!confirm(action+' @'+user.username+'?'))return;
+  try{
+    await api('/api/owner/ban/'+encodeURIComponent(user.username)+'?banned='+!user.is_banned,{method:'PUT'});
+    profiles.delete(key);
+    render();
+    toast(action==='Ban'?'Account banned':'Account unbanned');
+  }catch(error){toast(error.message);}
+}
+async function moderateVideo(){
+  const id=state.video;
+  if(!confirm('Remove this video from MrHTube?'))return;
+  try{
+    await api('/api/owner/videos/'+encodeURIComponent(id),{method:'DELETE'});
+    videos=videos.filter(video=>video.id!==id);
+    profiles.clear();
+    go('home');
+    toast('Video removed');
+  }catch(error){toast(error.message);}
+}
+async function moderateComment(commentId,videoId){
+  if(!confirm('Remove this comment?'))return;
+  try{
+    await api('/api/owner/comments/'+encodeURIComponent(commentId),{method:'DELETE'});
+    await loadComments(videoId);
+  }catch(error){toast(error.message);}
+}
+
+$('#passwordForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const form=event.currentTarget;
+  const error=$('#passwordError');
+  const submit=form.querySelector('button');
+  submit.disabled=true;
+  error.hidden=true;
+  try{
+    await api('/api/me/password',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(form)))});
+    form.reset();
+    toast('Password changed');
+  }catch(err){error.textContent=err.message;error.hidden=false;}
+  finally{submit.disabled=false;}
+});
 
 $('#searchForm').addEventListener('submit',e=>{e.preventDefault();const q=search.value.trim();if(q)go('search',{query:q});});
 $('#clearSearch').addEventListener('click',()=>{search.value='';search.focus();});
@@ -136,7 +183,7 @@ $('#removeAvatar').addEventListener('click',()=>saveProfile(true));
 $('#viewProfile').addEventListener('click',()=>$('#accountDialog').close());
 $('#logoutButton').addEventListener('click',async()=>{try{await api('/api/logout',{method:'POST'});applySession({user:null,likes:[],saved:[],history:[]});$('#accountDialog').close();toast('Logged out');}catch(error){toast(error.message);}});
 $('#uploadForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;const button=$('#uploadSubmit');const error=$('#uploadError');error.hidden=true;button.disabled=true;button.textContent='Uploading…';try{const data=await api('/api/upload',{method:'POST',body:new FormData(form)});const uploaded=await api('/api/videos');videos=uploaded;form.reset();$('#accountDialog').close();profiles.delete(state.user.username.toLowerCase());go('watch',{video:data.id});toast('Video published');}catch(err){error.textContent=err.message;error.hidden=false;}finally{button.disabled=false;button.textContent='Publish video';}});
-document.addEventListener('click',e=>{const page=e.target.closest('[data-page]');if(page){state.category='All';go(page.dataset.page);return;}const category=e.target.closest('[data-category]');if(category){state.category=category.dataset.category;renderFeed();return;}if(e.target.id==='editProfileButton'){openAccount();return;}const video=e.target.closest('[data-video]');if(video){go('watch',{video:video.dataset.video});return;}if(e.target.id==='likeButton')toggleList('likes',state.video);if(e.target.id==='saveButton')toggleList('saved',state.video);if(e.target.id==='shareButton'){const url=location.href;navigator.clipboard?.writeText(url).then(()=>toast('Link copied')).catch(()=>toast(url));}});
+document.addEventListener('click',e=>{const page=e.target.closest('[data-page]');if(page){state.category='All';go(page.dataset.page);return;}const category=e.target.closest('[data-category]');if(category){state.category=category.dataset.category;renderFeed();return;}if(e.target.id==='banAccount'){moderateAccount();return;}if(e.target.id==='removeVideo'){moderateVideo();return;}if(e.target.id==='editProfileButton'){openAccount();return;}const video=e.target.closest('[data-video]');if(video){go('watch',{video:video.dataset.video});return;}if(e.target.id==='likeButton')toggleList('likes',state.video);if(e.target.id==='saveButton')toggleList('saved',state.video);if(e.target.id==='shareButton'){const url=location.href;navigator.clipboard?.writeText(url).then(()=>toast('Link copied')).catch(()=>toast(url));}});
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-video]')){e.preventDefault();go('watch',{video:e.target.dataset.video});}if(e.key==='/'&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){e.preventDefault();search.focus();}});
 document.addEventListener('submit',async e=>{if(e.target.id!=='commentForm')return;e.preventDefault();if(!state.user){openAccount();return;}const input=$('#commentInput');const value=input.value.trim();if(!value)return;try{await api('/api/comments/'+encodeURIComponent(state.video),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:value})});input.value='';await loadComments(state.video);toast('Comment posted');}catch(error){toast(error.message);}});
 window.addEventListener('hashchange',syncHash);

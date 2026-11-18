@@ -62,6 +62,15 @@ def init_db():
           id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
           password_hash TEXT NOT NULL, created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS account_moderation (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          is_owner INTEGER NOT NULL DEFAULT 0,
+          is_banned INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS owner_resets (reset_hash TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS removed_videos (
+          video_id TEXT PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE
+        );
         CREATE TABLE IF NOT EXISTS profiles (
           user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
           display_name TEXT NOT NULL DEFAULT '', bio TEXT NOT NULL DEFAULT '',
@@ -107,6 +116,24 @@ def init_db():
                         conn.execute("INSERT OR IGNORE INTO users(username,password_hash,created_at) VALUES(?,?,?)",
                                      (username, stored_hash, int(time.time())))
 
+        reset = os.environ.get("MRHTUBE_OWNER_RESET_HASH", "")
+        if re.fullmatch(r"scrypt\$[0-9a-f]{32}\$[0-9a-f]{128}", reset):
+            applied = conn.execute("INSERT OR IGNORE INTO owner_resets VALUES(?)", (reset,))
+            if applied.rowcount:
+                conn.execute(
+                    "INSERT INTO users(username,password_hash,created_at) VALUES('Mr_H',?,?) "
+                    "ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash",
+                    (reset, int(time.time())),
+                )
+                owner_id = conn.execute("SELECT id FROM users WHERE username='Mr_H'").fetchone()[0]
+                conn.execute("UPDATE account_moderation SET is_owner=0 WHERE is_owner=1")
+                conn.execute(
+                    "INSERT INTO account_moderation VALUES(?,1,0) "
+                    "ON CONFLICT(user_id) DO UPDATE SET is_owner=1,is_banned=0",
+                    (owner_id,),
+                )
+                conn.execute("DELETE FROM sessions WHERE user_id=?", (owner_id,))
+
 
 init_db()
 
@@ -134,7 +161,8 @@ def current_user(request: Request):
         return None
     with db() as conn:
         return conn.execute("""SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id
-          WHERE s.token_hash=? AND s.expires_at>?""",
+          LEFT JOIN account_moderation m ON m.user_id=u.id
+          WHERE s.token_hash=? AND s.expires_at>? AND COALESCE(m.is_banned,0)=0""",
           (hashlib.sha256(token.encode()).hexdigest(), int(time.time()))).fetchone()
 
 
@@ -179,7 +207,10 @@ def library(user_id: int):
 def public_user(user):
     with db() as conn:
         profile = conn.execute("SELECT display_name,bio,avatar_version FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
+        status = conn.execute("SELECT is_owner,is_banned FROM account_moderation WHERE user_id=?", (user["id"],)).fetchone()
     return {
+        "is_owner": bool(status and status["is_owner"]),
+        "is_banned": bool(status and status["is_banned"]),
         "id": user["id"], "username": user["username"],
         "display_name": profile["display_name"] if profile else "",
         "bio": profile["bio"] if profile else "",
@@ -300,7 +331,7 @@ def signup(data: Credentials, response: Response, request: Request):
 def login(data: Credentials, response: Response, request: Request):
     limit_auth(request, "login", 30)
     with db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE", (data.username.strip(),)).fetchone()
+        user = conn.execute("SELECT u.* FROM users u LEFT JOIN account_moderation m ON m.user_id=u.id WHERE u.username=? AND COALESCE(m.is_banned,0)=0", (data.username.strip(),)).fetchone()
     if not user or not password_matches(data.password, user["password_hash"]):
         raise HTTPException(401, "Invalid username or password.")
     new_session(response, user["id"])
@@ -322,7 +353,8 @@ def list_videos(channel: str | None = None):
     with db() as conn:
         rows = conn.execute("""SELECT v.*, u.username, p.display_name, p.avatar_version, (SELECT COUNT(*) FROM likes l WHERE l.video_id=v.id) AS like_count
           FROM videos v JOIN users u ON u.id=v.owner_id LEFT JOIN profiles p ON p.user_id=u.id
-          WHERE (? IS NULL OR u.username=?) ORDER BY v.created_at DESC LIMIT 200""", (channel, channel)).fetchall()
+          WHERE (? IS NULL OR u.username=?) AND NOT EXISTS
+          (SELECT 1 FROM removed_videos r WHERE r.video_id=v.id) ORDER BY v.created_at DESC LIMIT 200""", (channel, channel)).fetchall()
     return [{"id": r["id"], "title": r["title"], "description": r["description"],
              "channel": r["username"], "channel_name": r["display_name"] or r["username"],
              "channel_avatar": avatar_url(r["owner_id"], r["avatar_version"]), "views": f'{r["like_count"]} likes', "age": "Community upload",
@@ -387,7 +419,7 @@ async def upload(request: Request, title: str = Form(...), description: str = Fo
 
 def video_row(video_id: str):
     with db() as conn:
-        return conn.execute("SELECT * FROM videos WHERE id=?", (video_id,)).fetchone()
+        return conn.execute("SELECT v.* FROM videos v WHERE id=? AND NOT EXISTS (SELECT 1 FROM removed_videos r WHERE r.video_id=v.id)", (video_id,)).fetchone()
 
 
 @app.get("/api/media/{video_id}")
@@ -441,9 +473,9 @@ def add_history(video_id: str, request: Request):
 @app.get("/api/comments/{video_id}")
 def get_comments(video_id: str):
     with db() as conn:
-        rows = conn.execute("""SELECT c.body,c.created_at,u.username FROM comments c
+        rows = conn.execute("""SELECT c.id,c.body,c.created_at,u.username FROM comments c
           JOIN users u ON u.id=c.user_id WHERE c.video_id=? ORDER BY c.id DESC LIMIT 100""", (video_id,)).fetchall()
-    return [{"text": r["body"], "time": r["created_at"] * 1000, "username": r["username"]} for r in rows]
+    return [{"id": r["id"], "text": r["body"], "time": r["created_at"] * 1000, "username": r["username"]} for r in rows]
 
 
 @app.post("/api/comments/{video_id}")
@@ -455,6 +487,69 @@ def add_comment(video_id: str, data: Comment, request: Request):
     with db() as conn:
         conn.execute("INSERT INTO comments(video_id,user_id,body,created_at) VALUES(?,?,?,?)",
                      (video_id, user["id"], body, int(time.time())))
+    return {"ok": True}
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@app.put("/api/me/password")
+def change_password(data: PasswordChange, request: Request, response: Response):
+    user = require_user(request)
+    limit_auth(request, "change_password", 10)
+    if not password_matches(data.current_password, user["password_hash"]):
+        raise HTTPException(400, "Current password is incorrect.")
+    with db() as conn:
+        changed = conn.execute("UPDATE users SET password_hash=? WHERE id=? AND password_hash=?",
+                               (password_hash(data.new_password), user["id"], user["password_hash"]))
+        if not changed.rowcount:
+            raise HTTPException(409, "Password changed. Sign in and try again.")
+        conn.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+    new_session(response, user["id"])
+    return {"ok": True}
+
+
+def require_owner(request: Request):
+    user = require_user(request)
+    if not public_user(user)["is_owner"]:
+        raise HTTPException(403, "Owner access required.")
+    return user
+
+
+@app.put("/api/owner/ban/{username}")
+def set_ban(username: str, banned: bool, request: Request):
+    owner = require_owner(request)
+    with db() as conn:
+        target = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+        if target is None:
+            raise HTTPException(404, "Account not found.")
+        if target["id"] == owner["id"]:
+            raise HTTPException(400, "You cannot ban the owner account.")
+        conn.execute("INSERT INTO account_moderation(user_id,is_banned) VALUES(?,?) "
+                     "ON CONFLICT(user_id) DO UPDATE SET is_banned=excluded.is_banned", (target["id"], banned))
+        if banned:
+            conn.execute("DELETE FROM sessions WHERE user_id=?", (target["id"],))
+    return {"ok": True}
+
+
+@app.delete("/api/owner/videos/{video_id}")
+def remove_video(video_id: str, request: Request):
+    require_owner(request)
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM videos WHERE id=?", (video_id,)).fetchone():
+            raise HTTPException(404, "Video not found.")
+        conn.execute("INSERT OR IGNORE INTO removed_videos VALUES(?)", (video_id,))
+    return {"ok": True}
+
+
+@app.delete("/api/owner/comments/{comment_id}")
+def remove_comment(comment_id: int, request: Request):
+    require_owner(request)
+    with db() as conn:
+        if not conn.execute("DELETE FROM comments WHERE id=?", (comment_id,)).rowcount:
+            raise HTTPException(404, "Comment not found.")
     return {"ok": True}
 
 
