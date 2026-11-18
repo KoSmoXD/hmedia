@@ -62,6 +62,11 @@ def init_db():
           id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
           password_hash TEXT NOT NULL, created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS profiles (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          display_name TEXT NOT NULL DEFAULT '', bio TEXT NOT NULL DEFAULT '',
+          avatar BLOB, avatar_version TEXT
+        );
         CREATE TABLE IF NOT EXISTS sessions (
           token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           expires_at INTEGER NOT NULL
@@ -172,7 +177,71 @@ def library(user_id: int):
 
 
 def public_user(user):
-    return {"id": user["id"], "username": user["username"]}
+    with db() as conn:
+        profile = conn.execute("SELECT display_name,bio,avatar_version FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
+    return {
+        "id": user["id"], "username": user["username"],
+        "display_name": profile["display_name"] if profile else "",
+        "bio": profile["bio"] if profile else "",
+        "avatar_url": avatar_url(user["id"], profile["avatar_version"]) if profile else None,
+    }
+
+
+def avatar_url(user_id, version):
+    return f"/api/avatars/{user_id}?v={version}" if version else None
+
+
+@app.get("/api/profiles/{username}")
+def get_profile(username: str):
+    with db() as conn:
+        user = conn.execute("SELECT id,username FROM users WHERE username=?", (username,)).fetchone()
+    if user is None:
+        raise HTTPException(404, "Profile not found.")
+    return public_user(user)
+
+
+@app.get("/api/avatars/{user_id}")
+def get_avatar(user_id: int):
+    with db() as conn:
+        row = conn.execute("SELECT avatar FROM profiles WHERE user_id=?", (user_id,)).fetchone()
+    if not row or row["avatar"] is None:
+        raise HTTPException(404, "Profile picture not found.")
+    return Response(row["avatar"], media_type="image/png", headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"})
+
+
+@app.put("/api/me/profile")
+def update_profile(request: Request, display_name: str = Form(""), bio: str = Form(""),
+                   avatar: UploadFile | None = File(None), remove_avatar: bool = Form(False)):
+    user = require_user(request)
+    display_name, bio = display_name.strip(), bio.strip()
+    if len(display_name) > 40 or len(bio) > 300:
+        raise HTTPException(400, "Use up to 40 characters for your name and 300 for your bio.")
+    new_avatar = None
+    if avatar is not None:
+        raw = avatar.file.read(MAX_POSTER + 1)
+        if len(raw) > MAX_POSTER:
+            raise HTTPException(400, "Profile pictures must be 3 MB or smaller.")
+        try:
+            with Image.open(io.BytesIO(raw), formats=["JPEG", "PNG", "WEBP"]) as image:
+                if image.width * image.height > 16_000_000:
+                    raise ValueError("Image dimensions too large")
+                image.thumbnail((256, 256))
+                output = io.BytesIO()
+                image.convert("RGBA").save(output, format="PNG")
+                new_avatar = output.getvalue()
+        except (OSError, ValueError, Image.DecompressionBombError):
+            raise HTTPException(400, "Choose a valid JPEG, PNG, or WebP profile picture.") from None
+    version = hashlib.sha256(new_avatar).hexdigest() if new_avatar is not None else None
+    with db() as conn:
+        conn.execute("""INSERT INTO profiles(user_id,display_name,bio,avatar,avatar_version)
+            VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
+            display_name=excluded.display_name, bio=excluded.bio,
+            avatar=CASE WHEN ? THEN excluded.avatar ELSE profiles.avatar END,
+            avatar_version=CASE WHEN ? THEN excluded.avatar_version ELSE profiles.avatar_version END
+            """, (user["id"], display_name, bio, new_avatar, version,
+                  remove_avatar or new_avatar is not None, remove_avatar or new_avatar is not None))
+    return public_user(user)
+
 
 
 class Credentials(BaseModel):
@@ -224,7 +293,7 @@ def signup(data: Credentials, response: Response, request: Request):
     except sqlite3.IntegrityError:
         raise HTTPException(409, "That username is taken.") from None
     new_session(response, user_id)
-    return {"user": {"id": user_id, "username": username}, "likes": [], "saved": [], "history": []}
+    return {"user": public_user({"id": user_id, "username": username}), "likes": [], "saved": [], "history": []}
 
 
 @app.post("/api/login")
@@ -249,12 +318,14 @@ def logout(request: Request, response: Response):
 
 
 @app.get("/api/videos")
-def list_videos():
+def list_videos(channel: str | None = None):
     with db() as conn:
-        rows = conn.execute("""SELECT v.*, u.username, (SELECT COUNT(*) FROM likes l WHERE l.video_id=v.id) AS like_count
-          FROM videos v JOIN users u ON u.id=v.owner_id ORDER BY v.created_at DESC LIMIT 200""").fetchall()
+        rows = conn.execute("""SELECT v.*, u.username, p.display_name, p.avatar_version, (SELECT COUNT(*) FROM likes l WHERE l.video_id=v.id) AS like_count
+          FROM videos v JOIN users u ON u.id=v.owner_id LEFT JOIN profiles p ON p.user_id=u.id
+          WHERE (? IS NULL OR u.username=?) ORDER BY v.created_at DESC LIMIT 200""", (channel, channel)).fetchall()
     return [{"id": r["id"], "title": r["title"], "description": r["description"],
-             "channel": r["username"], "views": f'{r["like_count"]} likes', "age": "Community upload",
+             "channel": r["username"], "channel_name": r["display_name"] or r["username"],
+             "channel_avatar": avatar_url(r["owner_id"], r["avatar_version"]), "views": f'{r["like_count"]} likes', "age": "Community upload",
              "duration": "VIDEO", "category": r["category"], "color": "#ba9b35",
              "video_url": f'/api/media/{r["id"]}',
              "thumbnail_url": f'/api/thumbnail/{r["id"]}' if r["poster_filename"] else None}

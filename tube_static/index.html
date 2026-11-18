@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0f0f0f">
   <title>MrHTube</title>
   <link rel="icon" href="logo.png" type="image/png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=profile-1">
 </head>
 <body>
   <header class="topbar">
@@ -35,9 +35,17 @@
       <div class="auth-tabs"><button type="button" class="auth-tab selected" id="loginTab">Log in</button><button type="button" class="auth-tab" id="signupTab">Create account</button></div>
       <form id="authForm"><label>Username<input name="username" autocomplete="username" pattern="[A-Za-z0-9_]{3,24}" minlength="3" maxlength="24" required></label><label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required></label><p id="authError" class="form-error" role="alert" hidden></p><button class="yellow-button" type="submit" id="authSubmit">Log in</button></form>
     </section>
-    <section id="userPanel" hidden><h2>Your account</h2><p class="dialog-muted" id="accountName"></p><button class="pill-button" id="logoutButton" type="button">Log out</button></section>
+    <section id="userPanel" hidden><h2>Your account</h2><p class="dialog-muted" id="accountName"></p><a class="pill-button" id="viewProfile">View profile</a>
+      <form id="profileForm">
+        <label>Display name<input name="display_name" maxlength="40" autocomplete="nickname"></label>
+        <label>Bio<textarea name="bio" maxlength="300" rows="3"></textarea></label>
+        <label>Profile picture<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp"></label>
+        <button class="pill-button" type="button" id="removeAvatar" hidden>Remove current picture</button>
+        <p id="profileError" class="form-error" role="alert" hidden></p>
+        <button class="yellow-button" type="submit">Save profile</button>
+      </form><button class="pill-button" id="logoutButton" type="button">Log out</button></section>
     <section id="uploadPanel" hidden><h2>Upload a video</h2><p class="dialog-muted">MP4 or WebM, up to 100 MB. Your video will be public.</p><form id="uploadForm"><label>Title<input name="title" maxlength="120" required></label><label>Description<textarea name="description" maxlength="2000" rows="3"></textarea></label><label>Category<select name="category"><option>Other</option><option>Shorts</option><option>Music</option><option>Learning</option><option>Science</option><option>Animation</option><option>Gaming</option></select></label><label>Video<input name="video" type="file" accept="video/mp4,video/webm" required></label><label>Thumbnail (optional)<input name="thumbnail" type="file" accept="image/*"></label><p id="uploadError" class="form-error" role="alert" hidden></p><button class="yellow-button" type="submit" id="uploadSubmit">Publish video</button></form></section>
   </dialog>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=profile-1" defer></script>
 </body>
 </html>

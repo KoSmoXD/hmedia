@@ -33,3 +33,7 @@ body.light{color-scheme:light;--bg:#fff;--surface:#f2f2f2;--surface2:#eee;--hove
   .short-view { grid-template-columns: minmax(0, 420px); gap: 16px; }
   .short-media { height: min(62vh, 560px); }
 }
+
+.channel-avatar { object-fit: cover; }
+.profile-bio { white-space: pre-wrap; overflow-wrap: anywhere; }
+#editProfileButton, #logoutButton { margin-top: 14px; }
