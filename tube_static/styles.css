@@ -10,3 +10,26 @@ body.light{color-scheme:light;--bg:#fff;--surface:#f2f2f2;--surface2:#eee;--hove
 :root{--accent:#ffd600} .brand-mark{color:#171717}.account-trigger{border:1px solid #6b6b6b;border-radius:22px;background:transparent;color:var(--text);padding:8px 13px;font-size:13px;font-weight:700;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}.account-trigger:hover{background:var(--hover)}.upload-trigger{white-space:nowrap;padding:9px 13px}.account-dialog{width:min(460px,calc(100vw - 28px));padding:28px}.dialog-close{position:absolute;right:14px;top:12px;border:0;background:transparent;color:var(--text);font-size:26px}.account-dialog h2{margin:0 0 8px;font-size:24px}.dialog-muted{color:var(--muted);font-size:14px;margin:0 0 22px}.auth-tabs{display:flex;gap:8px;margin-bottom:18px}.auth-tab{flex:1;border:0;border-radius:9px;padding:10px;background:var(--surface2);color:var(--text)}.auth-tab.selected{background:var(--accent);color:#111;font-weight:700}.account-dialog form label{display:block;font-size:13px;font-weight:700;margin:14px 0}.account-dialog form input,.account-dialog form textarea,.account-dialog form select{display:block;width:100%;margin-top:6px;border:1px solid #666;border-radius:8px;background:var(--bg);color:var(--text);padding:10px;font-weight:400}.account-dialog form input[type=file]{font-size:12px}.yellow-button{border:0;border-radius:22px;background:var(--accent);color:#111;padding:11px 20px;font-weight:800;width:100%;margin-top:12px}.yellow-button:disabled{opacity:.5;cursor:wait}.form-error{color:#ffb3ba;font-size:13px}.player video{display:block;width:100%;height:100%;background:#000}.upload-placeholder{display:grid;place-items:center;width:100%;height:100%;background:linear-gradient(130deg,#2c280d,#6a5810);color:#fff;text-align:center;padding:18px;font-weight:800;font-size:20px}.mini-card .upload-placeholder{font-size:12px}
 @media(max-width:800px){.topbar{gap:8px}.top-actions{gap:6px}.upload-trigger{font-size:12px}}
 @media(max-width:600px){.topbar{padding:0 8px}.brand{gap:0}.search-form{min-width:0}.search-box input{padding:0 8px;font-size:13px}.search-box button{width:23px}.search-submit{width:33px;font-size:22px}.top-actions{gap:3px}.upload-trigger{font-size:0;width:30px;height:30px;padding:0}.upload-trigger::first-letter{font-size:20px}.account-trigger{font-size:11px;max-width:60px;padding:7px 6px}.brand-mark{width:25px;height:19px}.top-actions .icon-button{display:none}}
+
+/* MrHTube layout and brand */
+.brand { gap: 8px; letter-spacing: -.02em; }
+.brand-logo { display: block; width: 33px; height: 33px; border-radius: 8px; }
+.topbar { border-bottom: 1px solid var(--line); }
+.sidebar { border-right: 1px solid var(--line); }
+.catalog-heading { font-size: clamp(28px, 3vw, 42px); }
+.video-card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.video-card .thumb { border-radius: 0; }
+.video-card .video-meta { padding: 14px; }
+.channel-header { display: flex; align-items: center; gap: 22px; padding: 28px; margin: 14px 0 26px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.channel-header .channel-avatar { flex: 0 0 64px; width: 64px; height: 64px; font-size: 28px; }
+.channel-header h1, .short-details h1 { margin: 0; }
+.channel-header p { margin-bottom: 0; color: var(--muted); }
+.channel-block a, .short-details p a { text-decoration: underline; text-underline-offset: 4px; }
+.short-view { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 310px); justify-content: center; align-items: center; gap: 32px; padding: 18px 0; }
+.short-media { height: min(72vh, 650px); border-radius: 18px; overflow: hidden; background: #080808; }
+.short-media :is(video, iframe) { display: block; width: 100%; height: 100%; border: 0; object-fit: contain; }
+.short-details nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+@media(max-width: 720px) {
+  .short-view { grid-template-columns: minmax(0, 420px); gap: 16px; }
+  .short-media { height: min(62vh, 560px); }
+}

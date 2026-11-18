@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f0f0f">
-  <title>Mrh Tube</title>
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <title>MrHTube</title>
+  <link rel="icon" href="logo.png" type="image/png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand-area">
       <button class="icon-button menu-button" id="menuButton" aria-label="Toggle menu">☰</button>
-      <button class="brand" id="brandButton" aria-label="Mrh Tube home"><span class="brand-mark">▶</span><span>Mrh Tube</span></button>
+      <button class="brand" id="brandButton" aria-label="MrHTube home"><img class="brand-logo" src="logo.png" alt=""><span>MrHTube</span></button>
     </div>
     <form id="searchForm" class="search-form" role="search">
       <div class="search-box"><input id="searchInput" type="search" placeholder="Search" autocomplete="off" aria-label="Search videos"><button id="clearSearch" type="button" aria-label="Clear search">×</button></div>
@@ -23,7 +23,6 @@
   <div class="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="Navigation">
       <nav id="navList"></nav>
-      <div class="side-note">Mrh Tube community videos<br>and selected YouTube embeds.</div>
     </aside>
     <main id="main" tabindex="-1"></main>
   </div>
@@ -32,12 +31,12 @@
   <dialog id="accountDialog" class="account-dialog">
     <button type="button" class="dialog-close" id="closeAccount" aria-label="Close">×</button>
     <section id="guestPanel">
-      <h2>Welcome to Mrh Tube</h2><p class="dialog-muted">Log in or create an account to save videos, comment, and upload.</p>
+      <h2>Welcome to MrHTube</h2><p class="dialog-muted">Log in or create an account to save videos, comment, and upload.</p>
       <div class="auth-tabs"><button type="button" class="auth-tab selected" id="loginTab">Log in</button><button type="button" class="auth-tab" id="signupTab">Create account</button></div>
       <form id="authForm"><label>Username<input name="username" autocomplete="username" pattern="[A-Za-z0-9_]{3,24}" minlength="3" maxlength="24" required></label><label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required></label><p id="authError" class="form-error" role="alert" hidden></p><button class="yellow-button" type="submit" id="authSubmit">Log in</button></form>
     </section>
     <section id="userPanel" hidden><h2>Your account</h2><p class="dialog-muted" id="accountName"></p><button class="pill-button" id="logoutButton" type="button">Log out</button></section>
-    <section id="uploadPanel" hidden><h2>Upload a video</h2><p class="dialog-muted">MP4 or WebM, up to 100 MB. Your video will be public.</p><form id="uploadForm"><label>Title<input name="title" maxlength="120" required></label><label>Description<textarea name="description" maxlength="2000" rows="3"></textarea></label><label>Category<select name="category"><option>Other</option><option>Music</option><option>Learning</option><option>Science</option><option>Animation</option><option>Gaming</option></select></label><label>Video<input name="video" type="file" accept="video/mp4,video/webm" required></label><label>Thumbnail (optional)<input name="thumbnail" type="file" accept="image/*"></label><p id="uploadError" class="form-error" role="alert" hidden></p><button class="yellow-button" type="submit" id="uploadSubmit">Publish video</button></form></section>
+    <section id="uploadPanel" hidden><h2>Upload a video</h2><p class="dialog-muted">MP4 or WebM, up to 100 MB. Your video will be public.</p><form id="uploadForm"><label>Title<input name="title" maxlength="120" required></label><label>Description<textarea name="description" maxlength="2000" rows="3"></textarea></label><label>Category<select name="category"><option>Other</option><option>Shorts</option><option>Music</option><option>Learning</option><option>Science</option><option>Animation</option><option>Gaming</option></select></label><label>Video<input name="video" type="file" accept="video/mp4,video/webm" required></label><label>Thumbnail (optional)<input name="thumbnail" type="file" accept="image/*"></label><p id="uploadError" class="form-error" role="alert" hidden></p><button class="yellow-button" type="submit" id="uploadSubmit">Publish video</button></form></section>
   </dialog>
   <script src="app.js" defer></script>
 </body>

@@ -1,4 +1,4 @@
-"""Mrh Tube: a small video site with persistent local accounts and uploads."""
+"""MrHTube: a small video site with persistent local accounts and uploads."""
 from __future__ import annotations
 
 from collections import defaultdict, deque
@@ -32,10 +32,10 @@ SESSION_AGE = 60 * 60 * 24 * 30
 MAX_VIDEO = 100 * 1024 * 1024
 MAX_POSTER = 3 * 1024 * 1024
 USERNAME = re.compile(r"^[A-Za-z0-9_]{3,24}$")
-CATEGORIES = {"Music", "Learning", "Science", "Animation", "Gaming", "Other"}
+CATEGORIES = {"Music", "Learning", "Science", "Animation", "Gaming", "Other", "Shorts"}
 AUTH_ATTEMPTS: dict[str, deque[float]] = defaultdict(deque)
 
-app = FastAPI(title="Mrh Tube")
+app = FastAPI(title="MrHTube")
 
 
 @contextmanager
